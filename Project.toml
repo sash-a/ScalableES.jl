@@ -1,0 +1,22 @@
+[deps]
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LyceumAI = "6917c76a-ac01-4302-a33e-8c456ab70f71"
+LyceumBase = "db31fed1-ca1e-4084-8a49-12fae1996a55"
+LyceumMuJoCo = "48b9757e-04b8-4dbf-b6ed-75c13d9e4026"
+LyceumMuJoCoViz = "409fd311-7925-44f6-a514-6be572b34fdd"
+MuJoCo = "93189219-7048-461c-94ec-443a161ed927"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+UniversalLogger = "5c5e3362-9445-4819-9f95-51c44c51adeb"
+
+[compat]
+Flux = "~0.11.3"
+LyceumAI = "~0.2.3"
+LyceumBase = "~0.2.2"
+LyceumMuJoCo = "~0.2.3"
+LyceumMuJoCoViz = "~0.2.5"
+MuJoCo = "~0.3.0"
+Plots = "~1.20.0"
+UniversalLogger = "~0.2.0"
