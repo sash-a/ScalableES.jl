@@ -14,14 +14,15 @@ function rank(fs::Vector)
 	ranked = zeros(Float32, len)
 	ranked[inds] = (0:len - 1)
 	
-	(ranked ./ (len - 1) .- 0.5f0) * 2
+	ranked ./ (len - 1) .- 0.5f0
 end
 
 rank(results::Vector{EsResult}) = map((r,f)->EsResult(f, r.ind, r.steps), results, rank((r->r.fit).(results)))
 
 function summary(results::Vector)
 	fits = map(r->r.fit, results)
-	avg_rew = reduce(+, fits)/length(results)  
+
+	avg_rew = reduce(+, fits) / length(results)
 	max_rew = max(fits...)
 	tot_steps = reduce(+, map(r->r.steps, results))
 
