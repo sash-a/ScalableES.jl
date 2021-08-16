@@ -1,13 +1,41 @@
-include("core.jl")
+module ScalableES
+
+using Distributed
+
+numprocs = 4
+procs = addprocs(numprocs, exeflags="--project")
+
+@everywhere include("policy.jl")
+@everywhere include("noisetable.jl")
+@everywhere include("vbn.jl")
+include("optim.jl")
+include("util.jl")
+
+@everywhere using .Plcy
+@everywhere using .Noise
+@everywhere using .Vbn
+using .Optimizer
+using .Util
+
+@everywhere using ParallelDataTransfer
+@everywhere using IterTools
+@everywhere using LyceumMuJoCo
+@everywhere using MuJoCo 
+@everywhere using Flux
+@everywhere using Random
 
 
-using MuJoCo
-using LyceumMuJoCo
-using Flux
-using .Es
 
-mj_activate("/home/sasha/.mujoco/mjkey.txt")
-env = LyceumMuJoCo.Walker2DV2()
+# TODO test where @everywhere is needed
+@everywhere include("core.jl")
+
+# @everywhere using MuJoCo
+# @everywhere using LyceumMuJoCo
+# @everywhere using Flux
+@everywhere using .Es
+
+@everywhere mj_activate("/home/sasha/.mujoco/mjkey.txt")
+@everywhere env = LyceumMuJoCo.HopperV2()
 actsize = length(actionspace(env))
 obssize = length(obsspace(env))
 
@@ -20,3 +48,5 @@ nn = Chain(Dense(obssize, 256, tanh; initW=Flux.glorot_normal, initb=Flux.glorot
             Dense(256, actsize, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal))
 
 Es.run(nn, env)
+
+end
