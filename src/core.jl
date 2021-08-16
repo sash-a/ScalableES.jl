@@ -19,31 +19,21 @@ using Flux
 using Random
 
 
-function run()
-	mj_activate("/home/sasha/.mujoco/mjkey.txt")
-	env = LyceumMuJoCo.Walker2DV2()
+function run(nn, env, gens=500, episodes=256, σ=0.02f0, nt_size=250000000, η=0.01f0)
 	actsize = length(actionspace(env))
 	obssize = length(obsspace(env))
 
-	# nn = Chain(Dense(obssize, 256, tanh), 
-	# 			Dense(256, 256, tanh),
-	#  			Dense(256, actsize, tanh))
-
-	nn = Chain(Dense(obssize, 256, tanh; initW=Flux.glorot_normal, initb=Flux.glorot_normal), 
-				Dense(256, 256, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
-	 			Dense(256, actsize, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal))
-
-	p = Policy(nn, 0.02f0)
+	p = Policy(nn)
 	obstat = Obstat(obssize, 1f-2)
-	nt = NoiseTable(250000000, length(p.θ))
-	opt = Adam(length(p.θ), 0.01f0)
+	nt = NoiseTable(nt_size, length(p.θ), σ)
+	opt = Adam(length(p.θ), η)
 
 	f = (nn; show_dist=false) -> eval_net(nn, env, mean(obstat), std(obstat); show_dist=show_dist)
 	tot_steps = 0
 
-	for i in 1:500
+	for i in 1:gens
 		@show "Gen $i"
-		sm, sumsq, cnt = step(p, nt, f, 256, opt)
+		sm, sumsq, cnt = step(p, nt, f, episodes, opt)
 		if cnt != 0
 			obstat = inc(obstat, sm, sumsq, cnt)
 		end
@@ -82,7 +72,6 @@ end
 function step(π, nt, f, n::Int, optim; l2coeff=0.005f0)  # TODO rename this because it mutates π
 	results, obstats = evaluate(π, nt, f, n)
 	ranked = rank(results)
-
 	# TODO clean this up - minus positive noise fit from neg and adding up steps
 	ranked = map((r) -> EsResult(first(r).fit - last(r).fit, first(r).ind, first(r).steps + last(r).steps), partition(ranked, 2))
 	grad = l2coeff * π.θ - approxgrad(nt, ranked) ./ (n * 2)
@@ -93,7 +82,7 @@ function step(π, nt, f, n::Int, optim; l2coeff=0.005f0)  # TODO rename this bec
 	obstats  # dunno if I like passing this out
 end
 
-function eval_one(pol::AbstractPolicy, nt, noise_ind, f)
+function eval_one(pol::AbstractPolicy, nt::NoiseTable, noise_ind, f)
 	pπ, nπ, noise_ind = noiseify(pol, nt, noise_ind)  # todo make this
 
 	pfit, psteps, pobs = f(to_nn(pπ))
@@ -135,31 +124,18 @@ function evaluate(pol::AbstractPolicy, nt, f, n::Int)
 	results, (sm, sumsq, cnt)
 end
 
-function noiseify(pol::Policy, nt::NoiseTable)
-	noise, ind = get_noise(nt)
-	noise .*= pol.σ
-
-	pos_θ = pol.θ .+ noise
-	neg_θ = pol.θ .- noise
-
-	Policy(pos_θ, pol.σ, pol._nn_maker), Policy(neg_θ, pol.σ, pol._nn_maker), ind
-end
+noiseify(pol::Policy, nt::NoiseTable) = noiseify(pol, nt, rand_ind(nt))
 
 function noiseify(pol::Policy, nt::NoiseTable, ind::Int)
-	noise, ind = get_noise(nt, ind)
-	noise .*= pol.σ
-
-	pos_θ = pol.θ .+ noise
-	neg_θ = pol.θ .- noise
-
-	Policy(pos_θ, pol.σ, pol._nn_maker), Policy(neg_θ, pol.σ, pol._nn_maker), ind
+	noise = sample(nt, ind)
+	Policy(pol.θ .+ noise, pol._nn_maker), Policy(pol.θ .- noise, pol._nn_maker), ind
 end
 
 function approxgrad(nt::NoiseTable, rankedresults)
 	fits = map(r-> r.fit, rankedresults)
-	noises = map(r -> get_noise(nt, r.ind), rankedresults)
+	noises = map(r -> sample(nt, r.ind), rankedresults)
 		
-	sum([f .* n for (f, n) in zip(fits, noises)])
+	sum([f .* n for (f, n) in zip(fits, noises)]) .* (1 / nt.σ)  # because noise already has std σ, which just messes with lr 
 end
 
 function optimize!(π::Policy, optim, grad)
