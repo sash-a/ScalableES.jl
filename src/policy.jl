@@ -14,6 +14,6 @@ end
 
 Policy(nn) = Policy(Flux.destructure(nn)...)
 
-@everywhere to_nn(π::Policy) = π._nn_maker(π.θ)
+to_nn(π::Policy) = π._nn_maker(π.θ)
 
 end

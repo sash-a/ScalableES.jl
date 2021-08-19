@@ -1,35 +1,37 @@
 using Distributed
 p = addprocs(2, exeflags="--project")
 
-@everywhere using ParallelDataTransfer
-@everywhere include("policy.jl")
-@everywhere using .Plcy
-@everywhere using Flux
+# @everywhere using ParallelDataTransfer
+# @everywhere include("policy.jl")
+# @everywhere using .Plcy
+# @everywhere using Flux
 
 
-function makepol()
-    global p
-    nn = Chain(Dense(5,5))
-    root_π = Plcy.Policy(nn)
+# function makepol()
+#     global p
+#     nn = Chain(Dense(5,5))
+#     root_π = Plcy.Policy(nn)
 
-    @show root_π
+#     @show root_π
 
-    sendto(p, π=root_π)
+#     sendto(p, π=root_π)
 
-    pmap(1:3) do i 
-        @show i
-        # @show π.θ
-        @show to_nn(π).layers[1].W
-        sleep(1)
-        π, 1, 4
-    end
-end
+#     pmap(1:3) do i 
+#         @show i
+#         # @show π.θ
+#         @show to_nn(π).layers[1].W
+#         sleep(1)
+#         π, 1, 4
+#     end
+# end
 
 
-x = map(fetch, makepol())
-for (p, o, f) in x
-    @show p o f
-end
+# x = map(fetch, makepol())
+# for (p, o, f) in x
+#     @show p o f
+# end
+
+
 # function stp(p)
 #     sendto(p, pol=[1,2,3], obstat=4)
 
@@ -50,3 +52,20 @@ end
 
 # fut = [fetch(f) for f in stp(p)]
 # @show fut
+
+@everywhere using SharedArrays
+
+a = collect(1:100)
+S = SharedArray{Int}((5), init = s->s[localindices(s)] = a[localindices(s)], pids=Int[1,2,3])
+@everywhere struct T
+    S
+end
+t = T(S)
+
+function f(S)
+    pmap(1:5) do i
+        @show S[i]
+        S[i] = -myid()
+    end
+end
+
