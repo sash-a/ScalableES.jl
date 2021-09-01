@@ -21,13 +21,13 @@ function runsaved(suffix)
 
     obmean, obstd = ScalableEs.mean(obstat), ScalableEs.std(obstat)
     states = collectstates(model, env, obmean, obstd)
-    modes = LyceumMuJoCoViz.EngineMode[LyceumMuJoCoViz.PassiveDynamics()]
-    push!(modes, LyceumMuJoCoViz.Trajectory([states]))
+    # modes = LyceumMuJoCoViz.EngineMode[LyceumMuJoCoViz.PassiveDynamics()]
+    # push!(modes, LyceumMuJoCoViz.Trajectory([states]))
 
-    engine = LyceumMuJoCoViz.Engine(LyceumMuJoCoViz.default_windowsize(), env, Tuple(modes))
-    viewport = render(engine)
+    # engine = LyceumMuJoCoViz.Engine(LyceumMuJoCoViz.default_windowsize(), env, Tuple(modes))
+    # viewport = render(engine)
     
-    # visualize(env, controller = e -> act(e, model, obmean, obstd), trajectories=[states])
+    visualize(env, controller = e -> act(e, model, obmean, obstd), trajectories=[states])
 end
 
 function render(e::LyceumMuJoCoViz.Engine)
@@ -72,4 +72,4 @@ function collectstates(nn::Chain, env, obmean, obstd)
 	states
 end
 
-runsaved("final")
+runsaved("gen24")
