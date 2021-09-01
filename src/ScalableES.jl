@@ -23,11 +23,12 @@ using Random
 using StaticArrays
 using StatsBase
 using Dates
+using BSON: @save
 
 export run_es, step
 
-function run_es(nn, env, comm::Comm, gens=100, episodes=256, σ=0.02f0, nt_size=250000000, η=0.01f0)
-	@assert episodes / size(comm) % 2 == 0 "Num episodes / nprocs must be even (eps:$episodes, nprocs:$(size(comm)))"
+function run_es(nn, env, comm::Comm; gens=150, npolicies=256, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0)
+	@assert npolicies / size(comm) % 2 == 0 "Num policies / num procs must be even (eps:$npolicies, nprocs:$(size(comm)))"
 
 	println("Running ScalableEs")
 
@@ -42,8 +43,9 @@ function run_es(nn, env, comm::Comm, gens=100, episodes=256, σ=0.02f0, nt_size=
 	
 	obstat = Obstat(obssize, 1f-2)
 	opt = isroot(comm) ? Adam(length(p.θ), η) : nothing
-	f = (nn; show_dist = false) -> eval_net(nn, env, mean(obstat), std(obstat); show_dist=show_dist)
+	f = (nn) -> eval_net(nn, env, mean(obstat), std(obstat), episodes)
 	tot_steps = 0
+	eval_score = -Inf
 
 	println("Initialization done")
 
@@ -51,44 +53,56 @@ function run_es(nn, env, comm::Comm, gens=100, episodes=256, σ=0.02f0, nt_size=
 		if isroot(comm) println("\n\nGen $i") end
 		
 		t = now()
-		res, gen_obstat = step(p, nt, f, episodes, opt, comm)  # TODO pass through total steps
+		res, gen_obstat = step(p, nt, f, npolicies, opt, comm)
 		obstat += gen_obstat
 
 		if isroot(comm) 
 			tot_steps += sum(map(r -> r.steps, res))
 
+			# save model
+			gen_eval = geteval(env)
+			if gen_eval > eval_score
+				println("Saving model with eval score $gen_eval")
+				eval_score = gen_eval
+				model = to_nn(p)
+				@save "saved/model-obstat-opt-gen$i.bson" model obstat opt
+			end
+
 			# print info
-			println("Main fit: $(first(f(to_nn(p); show_dist=true)))")
+			println("Main fit: $(first(f(to_nn(p))))")
+			println("Total steps: $tot_steps")
 			println("Time: $(now() - t)")
 			describe(res)
 		end
 	end
 
+	model = to_nn(p)
+	@save "saved/model-obstat-opt-final.bson" model obstat opt
+
 	MPI.free(win)
 end
 
-function eval_net(nn::Chain, env, obmean, obstd; show_dist=false)
-	reset!(env)
+function eval_net(nn::Chain, env, obmean, obstd, episodes::Int)
 	obs = []
-
 	r = 0
 	step = 0
 
-	for i in 1:500
-		ob = getobs(env)
-		act = forward(nn, ob, obmean, obstd)
-		setaction!(env, act)
-		step!(env)
+	for i in 1:episodes
+		reset!(env)
+		for i in 1:1000
+			ob = getobs(env)
+			act = forward(nn, ob, obmean, obstd)
+			setaction!(env, act)
+			step!(env)
 
-		step += 1
-		push!(obs, ob)  # propogate ob recording to here, don't have to alloc mem if not using obs
-		r += getreward(env)
-		if isdone(env) break end
+			step += 1
+			push!(obs, ob)  # propogate ob recording to here, don't have to alloc mem if not using obs
+			r += getreward(env)
+			if isdone(env) break end
+		end
 	end
-
-	# if show_dist @show LyceumMuJoCo._torso_x(env) end
 	# @show rew step
-	r, step, obs
+	r/episodes, step, obs
 end
 
 function step(π::AbstractPolicy, nt, f, n::Int, optim, comm::Comm; l2coeff=0.005f0)  # TODO rename this because it mutates π

@@ -6,7 +6,7 @@ import Base: size
 
 export MPIROOT, size, isroot, mpi_shared_array, gather, bcast, allreduce
 
-MPIROOT = 0
+const MPIROOT = 0
 
 isroot(comm::Comm)::Bool = MPI.Comm_rank(comm) == MPIROOT
 size(comm::Comm) = MPI.Comm_size(comm)

@@ -407,6 +407,12 @@ git-tree-sha1 = "44e3b40da000eab4ccb1aecdc4801c040026aeb5"
 uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 version = "0.9.13"
 
+[[HrlMuJoCoEnvs]]
+deps = ["Distances", "Distributions", "LightXML", "LyceumBase", "LyceumMuJoCo", "LyceumMuJoCoViz", "MuJoCo", "Random", "Shapes", "UnsafeArrays"]
+path = "/home/sasha/Documents/es/HrlMuJoCoEnvs/"
+uuid = "b8da5b23-2d8f-482c-ba9f-9eec9bcb73c4"
+version = "0.1.0"
+
 [[Hwloc]]
 deps = ["Hwloc_jll"]
 git-tree-sha1 = "ffdcd4272a7cc36442007bca41aa07ca3cc5fda4"
@@ -608,6 +614,12 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "7f3efec06033682db852f8b3bc3c1d2b0a0ab066"
 uuid = "38a345b3-de98-5d2b-a5d3-14cd9215e700"
 version = "2.36.0+0"
+
+[[LightXML]]
+deps = ["Libdl", "XML2_jll"]
+git-tree-sha1 = "e129d9391168c677cd4800f5c0abb1ed8cb3794f"
+uuid = "9c8b4983-aa76-5018-a973-4c85ecc9e179"
+version = "0.9.0"
 
 [[LinearAlgebra]]
 deps = ["Libdl"]
