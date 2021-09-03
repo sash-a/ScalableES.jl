@@ -21,9 +21,9 @@ end
 
 rank(results::Vector{EsResult{T}}) where T = map((r,f)->EsResult(f, r.ind, r.steps), results, rank((r->r.fit).(results)))
 
-function StatsBase.describe(results::Vector{EsResult{T}}) where T
+function StatsBase.summarystats(results::Vector{EsResult{T}}) where T
 	fits = map(r->r.fit, results)
-	StatsBase.describe(fits)
+	StatsBase.summarystats(fits)
 end
 
 end

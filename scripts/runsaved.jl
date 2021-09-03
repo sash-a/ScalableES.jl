@@ -1,4 +1,4 @@
-include("ScalableES.jl")
+include("../src/ScalableES.jl")
 using .ScalableEs
 
 using MuJoCo
@@ -12,12 +12,12 @@ using Flux
 using BSON: @load
 using StaticArrays
 
-function runsaved(suffix)
-    @load "saved/model-obstat-opt-$suffix.bson" model obstat opt
+function runsaved(runname, suffix)
+    @load "saved/$(runname)/model-obstat-opt-$suffix.bson" model obstat opt
     
     mj_activate("/home/sasha/.mujoco/mjkey.txt")
 
-    env = HrlMuJoCoEnvs.AntFlagrun()
+    env = HrlMuJoCoEnvs.AntFlagrun(interval=50)
 
     obmean, obstd = ScalableEs.mean(obstat), ScalableEs.std(obstat)
     states = collectstates(model, env, obmean, obstd)
@@ -60,9 +60,9 @@ function collectstates(nn::Chain, env, obmean, obstd)
 
         states[:, t] .= getstate(env)
 		
-        if Euclidean()(HrlMuJoCoEnvs._torso_xy(env), env.target) < 1
-            @show "MADE IT!"
-        end
+        # if Euclidean()(HrlMuJoCoEnvs._torso_xy(env), env.target) < 1
+        #     @show "MADE IT!"
+        # end
 
         r += getreward(env)
 		if isdone(env) break end
@@ -72,4 +72,4 @@ function collectstates(nn::Chain, env, obmean, obstd)
 	states
 end
 
-runsaved("gen24")
+runsaved("randpos-cossinesim", "gen40")

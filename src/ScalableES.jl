@@ -16,22 +16,28 @@ using .Util
 
 using MPI: MPI, Comm
 using Base.Threads
-using IterTools
+
 using LyceumMuJoCo
-using MuJoCo 
+using MuJoCo
+
 using Flux
 using Random
+using IterTools
 using StaticArrays
 using StatsBase
+
 using Dates
 using BSON: @save
+using TensorBoardLogger, Logging
+
 
 export run_es, step
 
-function run_es(nn, envs, comm::Comm; gens=150, npolicies=256, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0)
-	@assert npolicies / size(comm) % 2 == 0 "Num policies / num procs must be even (eps:$npolicies, nprocs:$(size(comm)))"
+function run_es(name::String, nn, envs, comm::Comm; gens=150, npolicies=256, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0)
+	@assert npolicies / size(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(size(comm)))"
 
 	println("Running ScalableEs")
+	tblg = TBLogger("tensorboard_logs/$(name)", min_level=Logging.Info)
 
 	env = first(envs)
 	obssize = length(obsspace(env))
@@ -62,23 +68,31 @@ function run_es(nn, envs, comm::Comm; gens=150, npolicies=256, episodes=3, σ=0.
 
 			# save model
 			gen_eval = geteval(env)
-			if gen_eval > eval_score
+			if gen_eval > eval_score || i % 10 == 0
 				println("Saving model with eval score $gen_eval")
 				eval_score = gen_eval
 				model = to_nn(p)
-				@save "saved/model-obstat-opt-gen$i.bson" model obstat opt
+				path = joinpath("saved", name, "model-obstat-opt-gen$i.bson")
+				@save path model obstat opt
 			end
 
 			# print info
-			println("Main fit: $(first(f(to_nn(p), env)))")
+			fit = first(f(to_nn(p), env))
+			ss = summarystats(res)
+			println("Main fit: $(fit)")
 			println("Total steps: $tot_steps")
 			println("Time: $(now() - t)")
-			describe(res)
+			println(ss)
+			with_logger(tblg) do 
+				@info "" main_fitness=fit
+				@info "" summarystat=ss
+				@info "" total_steps=tot_steps
+			end
 		end
 	end
 
 	model = to_nn(p)
-	@save "saved/model-obstat-opt-final.bson" model obstat opt
+	@save joinpath("saved", name, "model-obstat-opt-final.bson") model obstat opt
 
 	MPI.free(win)
 end
@@ -89,8 +103,8 @@ function eval_net(nn::Chain, env, obmean, obstd, episodes::Int)
 	step = 0
 
 	for i in 1:episodes
-		reset!(env)
-		for i in 1:1000
+		LyceumMuJoCo.reset!(env)
+		for i in 1:500
 			ob = getobs(env)
 			act = forward(nn, ob, obmean, obstd)
 			setaction!(env, act)
