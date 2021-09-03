@@ -15,23 +15,31 @@ using .MpiUtils
 using .Util
 
 using MPI: MPI, Comm
-using IterTools
+using Base.Threads
+
 using LyceumMuJoCo
-using MuJoCo 
+using MuJoCo
+
 using Flux
 using Random
+using IterTools
 using StaticArrays
 using StatsBase
+
 using Dates
 using BSON: @save
+using TensorBoardLogger, Logging
+
 
 export run_es, step
 
-function run_es(nn, env, comm::Comm; gens=150, npolicies=256, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0)
-	@assert npolicies / size(comm) % 2 == 0 "Num policies / num procs must be even (eps:$npolicies, nprocs:$(size(comm)))"
+function run_es(name::String, nn, envs, comm::Comm; gens=150, npolicies=256, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0)
+	@assert npolicies / size(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(size(comm)))"
 
 	println("Running ScalableEs")
+	tblg = TBLogger("tensorboard_logs/$(name)", min_level=Logging.Info)
 
+	env = first(envs)
 	obssize = length(obsspace(env))
 
 	println("Creating policy")
@@ -43,41 +51,48 @@ function run_es(nn, env, comm::Comm; gens=150, npolicies=256, episodes=3, σ=0.0
 	
 	obstat = Obstat(obssize, 1f-2)
 	opt = isroot(comm) ? Adam(length(p.θ), η) : nothing
-	f = (nn) -> eval_net(nn, env, mean(obstat), std(obstat), episodes)
+	f = (nn, e) -> eval_net(nn, e, mean(obstat), std(obstat), episodes)
 	tot_steps = 0
 	eval_score = -Inf
 
 	println("Initialization done")
 
-	for i in 1:gens
-		if isroot(comm) println("\n\nGen $i") end
-		
+	for i in 1:gens		
 		t = now()
-		res, gen_obstat = step(p, nt, f, npolicies, opt, comm)
+		res, gen_obstat = step(p, nt, f, envs, npolicies, opt, comm)
 		obstat += gen_obstat
 
 		if isroot(comm) 
+			println("\n\nGen $i")
 			tot_steps += sum(map(r -> r.steps, res))
 
 			# save model
 			gen_eval = geteval(env)
-			if gen_eval > eval_score
+			if gen_eval > eval_score || i % 10 == 0
 				println("Saving model with eval score $gen_eval")
 				eval_score = gen_eval
 				model = to_nn(p)
-				@save "saved/model-obstat-opt-gen$i.bson" model obstat opt
+				path = joinpath("saved", name, "model-obstat-opt-gen$i.bson")
+				@save path model obstat opt
 			end
 
 			# print info
-			println("Main fit: $(first(f(to_nn(p))))")
+			fit = first(f(to_nn(p), env))
+			ss = summarystats(res)
+			println("Main fit: $(fit)")
 			println("Total steps: $tot_steps")
 			println("Time: $(now() - t)")
-			describe(res)
+			println(ss)
+			with_logger(tblg) do 
+				@info "" main_fitness=fit
+				@info "" summarystat=ss
+				@info "" total_steps=tot_steps
+			end
 		end
 	end
 
 	model = to_nn(p)
-	@save "saved/model-obstat-opt-final.bson" model obstat opt
+	@save joinpath("saved", name, "model-obstat-opt-final.bson") model obstat opt
 
 	MPI.free(win)
 end
@@ -88,8 +103,8 @@ function eval_net(nn::Chain, env, obmean, obstd, episodes::Int)
 	step = 0
 
 	for i in 1:episodes
-		reset!(env)
-		for i in 1:1000
+		LyceumMuJoCo.reset!(env)
+		for i in 1:500
 			ob = getobs(env)
 			act = forward(nn, ob, obmean, obstd)
 			setaction!(env, act)
@@ -105,8 +120,8 @@ function eval_net(nn::Chain, env, obmean, obstd, episodes::Int)
 	r/episodes, step, obs
 end
 
-function step(π::AbstractPolicy, nt, f, n::Int, optim, comm::Comm; l2coeff=0.005f0)  # TODO rename this because it mutates π
-	local_results, (s, ssq, c) = evaluate(π, nt, f, n ÷ size(comm) ÷ 2)
+function step(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::Comm; l2coeff=0.005f0)  # TODO rename this because it mutates π
+	local_results, (s, ssq, c) = evaluate(π, nt, f, envs, n ÷ size(comm) ÷ 2)
 	local_obstat = Obstat{length(s), Float32}(SVector{length(s), Float32}(s), SVector{length(s), Float32}(ssq), c)
 	results = gather(local_results, comm)
 	obstat = allreduce(local_obstat, +, comm)
@@ -141,24 +156,37 @@ function eval_one(pol::AbstractPolicy, nt::NoiseTable, noise_ind, f)
 	EsResult(pfit, noise_ind, psteps), EsResult(nfit, noise_ind, nsteps), (sm, sumsq, cnt)
 end
 
-function evaluate(pol::AbstractPolicy, nt, f, n::Int)
+function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int)
 	# TODO store fits as Float32
-	results = Vector{EsResult{Float64}}()  # [positive EsResult 1, negative EsResult 1, ...]
-	sm, sumsq, cnt = [], [], 0
+	results = Vector{EsResult{Float64}}(undef, n * 2)  # [positive EsResult 1, negative EsResult 1, ...]
 
-	for i in 1:n
+	osize = length(obsspace(first(envs)))
+	sm, sumsq, cnt = zeros(osize), zeros(osize), 0
+
+	l = ReentrantLock()
+
+	Threads.@threads for i in 1:n
+		env = envs[Threads.threadid()]
+
 		pπ, nπ, noise_ind = noiseify(pol, nt)
 
-		pfit, psteps, pobs = f(to_nn(pπ))
-		nfit, nsteps, nobs = f(to_nn(nπ))
+		pfit, psteps, pobs = f(to_nn(pπ), env)
+		nfit, nsteps, nobs = f(to_nn(nπ), env)
 
-		if i == 1 sm, sumsq = zeros(size(first(pobs))), zeros(size(first(pobs))) end
 		if rand() < 0.01
-			sm .+= sum(vcat(pobs, nobs))
-			sumsq .+= sum(map(x -> x.^2, vcat(pobs, nobs)))
-			cnt += length(pobs) + length(nobs)
+			lock(l)
+			try
+				sm .+= sum(vcat(pobs, nobs))
+				sumsq .+= sum(map(x -> x.^2, vcat(pobs, nobs)))
+				cnt += length(pobs) + length(nobs)
+			finally
+				unlock(l)
+			end
 		end
-		push!(results, EsResult(pfit, noise_ind, psteps), EsResult(nfit, noise_ind, nsteps))
+
+		results[i * 2 - 1] = EsResult(pfit, noise_ind, psteps)
+		results[i * 2] = EsResult(nfit, noise_ind, nsteps)
+		# push!(results, EsResult(pfit, noise_ind, psteps), EsResult(nfit, noise_ind, nsteps))
 	end
 
 	results, (sm, sumsq, cnt)
