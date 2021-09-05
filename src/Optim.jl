@@ -1,11 +1,7 @@
-module Optimizer
+abstract type AbstractOptim end
+function optimize(::AbstractOptim, grad) end
 
-export Optim, Adam
-
-abstract type Optim end
-function optimize(::Optim, grad) end
-
-mutable struct Adam <: Optim
+mutable struct Adam <: AbstractOptim
     dim::Int
     lr::Real
     t::Int
@@ -26,6 +22,4 @@ function optimize(opt::Adam, grad::Vector)
     opt.v = opt.beta2 * opt.v + (1 - opt.beta2) * (grad .^ 2)
 
     return -a * opt.m ./ (sqrt.(opt.v) .+ opt.epsilon)
-end
-
 end

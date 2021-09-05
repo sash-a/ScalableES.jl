@@ -1,18 +1,4 @@
-module ScalableEs
-
-include("policy.jl")
-include("noisetable.jl")
-include("optim.jl")
-include("vbn.jl")
-include("mpiutils.jl")
-include("util.jl")
-
-using .Plcy
-using .Noise
-using .Optimizer
-using .Vbn
-using .MpiUtils
-using .Util
+module ScalableES
 
 using MPI: MPI, Comm
 using Base.Threads
@@ -24,16 +10,26 @@ using Flux
 using Random
 using IterTools
 using StaticArrays
+using Distributions
 using StatsBase
+import Statistics: mean, std
 
 using Dates
 using BSON: @save
 using TensorBoardLogger, Logging
 
+include("MpiUtils.jl")
+include("Policy.jl")
+include("NoiseTable.jl")
+include("Optim.jl")
+include("Obstat.jl")
+include("Util.jl")
 
-export run_es, step
 
-function run_es(name::String, nn, envs, comm::Comm; gens=150, npolicies=256, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0)
+export run_es
+
+function run_es(name::String, nn, envs, comm::Comm; 
+				gens=150, npolicies=256, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0)
 	@assert npolicies / size(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(size(comm)))"
 
 	println("Running ScalableEs")
@@ -43,7 +39,7 @@ function run_es(name::String, nn, envs, comm::Comm; gens=150, npolicies=256, epi
 	obssize = length(obsspace(env))
 
 	println("Creating policy")
-	p = Policy(nn)
+	p = ScalableES.Policy(nn)
 	p.θ = bcast(p.θ, comm)
 
 	println("Creating noise table")
@@ -52,14 +48,36 @@ function run_es(name::String, nn, envs, comm::Comm; gens=150, npolicies=256, epi
 	obstat = Obstat(obssize, 1f-2)
 	opt = isroot(comm) ? Adam(length(p.θ), η) : nothing
 	f = (nn, e) -> eval_net(nn, e, mean(obstat), std(obstat), episodes)
-	tot_steps = 0
-	eval_score = -Inf
+
 
 	println("Initialization done")
+	run_gens(gens, name, p, nt, f, envs, npolicies, opt, obstat, tblg, comm)
 
-	for i in 1:gens		
+	model = to_nn(p)
+	@save joinpath("saved", name, "model-obstat-opt-final.bson") model obstat opt
+
+	MPI.free(win)
+end
+
+
+function run_gens(n::Int, 
+				  name::String,
+				  p::AbstractPolicy, 
+		 		  nt::NoiseTable, 
+  				  f, 
+				  envs, 
+				  npolicies::Int, 
+				  opt::AbstractOptim, 
+				  obstat::Obstat, 
+				  logger,
+				  comm::Comm)
+	tot_steps = 0
+	eval_score = -Inf
+	env = first(envs)
+
+	for i in 1:n		
 		t = now()
-		res, gen_obstat = step(p, nt, f, envs, npolicies, opt, comm)
+		res, gen_obstat = step_es(p, nt, f, envs, npolicies, opt, comm)
 		obstat += gen_obstat
 
 		if isroot(comm) 
@@ -83,18 +101,13 @@ function run_es(name::String, nn, envs, comm::Comm; gens=150, npolicies=256, epi
 			println("Total steps: $tot_steps")
 			println("Time: $(now() - t)")
 			println(ss)
-			with_logger(tblg) do 
-				@info "" main_fitness=fit
-				@info "" summarystat=ss
-				@info "" total_steps=tot_steps
+			with_logger(logger) do
+				@info "" main_fitness=fit log_step_increment=0
+				@info "" summarystat=ss log_step_increment=0
+				@info "" total_steps=tot_steps log_step_increment=1
 			end
 		end
 	end
-
-	model = to_nn(p)
-	@save joinpath("saved", name, "model-obstat-opt-final.bson") model obstat opt
-
-	MPI.free(win)
 end
 
 function eval_net(nn::Chain, env, obmean, obstd, episodes::Int)
@@ -120,7 +133,7 @@ function eval_net(nn::Chain, env, obmean, obstd, episodes::Int)
 	r/episodes, step, obs
 end
 
-function step(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::Comm; l2coeff=0.005f0)  # TODO rename this because it mutates π
+function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::Comm; l2coeff=0.005f0)  # TODO rename this because it mutates π
 	local_results, (s, ssq, c) = evaluate(π, nt, f, envs, n ÷ size(comm) ÷ 2)
 	local_obstat = Obstat{length(s), Float32}(SVector{length(s), Float32}(s), SVector{length(s), Float32}(ssq), c)
 	results = gather(local_results, comm)
@@ -128,8 +141,7 @@ function step(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::Comm; l2coef
 
 	if isroot(comm)
 		ranked = rank(results)
-		# TODO clean this up - minus positive noise fit from neg and adding up steps
-		ranked = map((r) -> EsResult(first(r).fit - last(r).fit, first(r).ind, first(r).steps + last(r).steps), partition(ranked, 2))
+		ranked = map(((p, n),) -> EsResult(p.fit - n.fit, p.ind, p.steps + n.steps), partition(ranked, 2))
 		grad = l2coeff * π.θ - approxgrad(nt, ranked) ./ (n * 2)
 		optimize!(π, optim, grad) # if this returns a new policy then Policy can be immutable
 	end
@@ -138,22 +150,6 @@ function step(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::Comm; l2coef
 	π.θ = bcast(π.θ, comm)
 
 	results, obstat
-end
-
-function eval_one(pol::AbstractPolicy, nt::NoiseTable, noise_ind, f)
-	pπ, nπ, noise_ind = noiseify(pol, nt, noise_ind)
-
-	pfit, psteps, pobs = f(to_nn(pπ))
-	nfit, nsteps, nobs = f(to_nn(nπ))
-
-	sm, sumsq, cnt = zeros(size(first(pobs))), zeros(size(first(pobs))), 0  # TODO svector from the begining
-	if rand() < 0.01
-		sm = sum(vcat(pobs, nobs))
-		sumsq = sum(map(x -> x.^2, vcat(pobs, nobs)))
-		cnt = length(pobs) + length(nobs)
-	end
-
-	EsResult(pfit, noise_ind, psteps), EsResult(nfit, noise_ind, nsteps), (sm, sumsq, cnt)
 end
 
 function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int)
@@ -174,28 +170,24 @@ function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int)
 		nfit, nsteps, nobs = f(to_nn(nπ), env)
 
 		if rand() < 0.01
-			lock(l)
-			try
+			Base.@lock l begin
 				sm .+= sum(vcat(pobs, nobs))
 				sumsq .+= sum(map(x -> x.^2, vcat(pobs, nobs)))
 				cnt += length(pobs) + length(nobs)
-			finally
-				unlock(l)
 			end
 		end
 
 		results[i * 2 - 1] = EsResult(pfit, noise_ind, psteps)
 		results[i * 2] = EsResult(nfit, noise_ind, nsteps)
-		# push!(results, EsResult(pfit, noise_ind, psteps), EsResult(nfit, noise_ind, nsteps))
 	end
 
 	results, (sm, sumsq, cnt)
 end
 
-noiseify(pol::Policy, nt::NoiseTable) = noiseify(pol, nt, rand_ind(nt))
+noiseify(pol::Policy, nt::NoiseTable) = noiseify(pol, nt, rand(nt))
 function noiseify(pol::Policy, nt::NoiseTable, ind::Int)
 	noise = sample(nt, ind)
-	Policy(pol.θ .+ noise, pol._nn_maker), Policy(pol.θ .- noise, pol._nn_maker), ind
+	Policy(pol.θ .+ noise, pol._re), Policy(pol.θ .- noise, pol._re), ind
 end
 
 function approxgrad(nt::NoiseTable, rankedresults)
@@ -206,7 +198,7 @@ function approxgrad(nt::NoiseTable, rankedresults)
 end
 
 function optimize!(π::Policy, optim, grad)
-	π.θ .+= Optimizer.optimize(optim, grad)
+	π.θ .+= optimize(optim, grad)
 end
 
 function forward(nn, x, obmean, obstd; rng=Random.GLOBAL_RNG)

@@ -1,10 +1,4 @@
-module Vbn
-
-export Obstat, inc, mean, std
-
-import Statistics: mean, std
 import Base: +
-using StaticArrays
 
 struct Obstat{S, T<:AbstractFloat}
     sum::SArray{Tuple{S}, T, 1, S}
@@ -17,5 +11,3 @@ Obstat(shape, eps::Float32) = Obstat{shape, Float32}(SVector{shape, Float32}(zer
 inc(o::Obstat, sum, sumsq, count) = o + Obstat(sum, sumsq, count)
 mean(o::Obstat) = o.sum / o.count
 std(o::Obstat) = sqrt.(max.(o.sumsq ./ o.count .- mean(o) .^ 2, fill(1f-2, size(o.sum))))
-
-end  # module

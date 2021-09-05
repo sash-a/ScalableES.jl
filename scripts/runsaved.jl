@@ -9,15 +9,15 @@ using Distances
 
 using Flux
 
-using BSON: @load
+using BSON:@load
 using StaticArrays
 
 function runsaved(runname, suffix)
     @load "saved/$(runname)/model-obstat-opt-$suffix.bson" model obstat opt
     
     mj_activate("/home/sasha/.mujoco/mjkey.txt")
-
-    env = HrlMuJoCoEnvs.AntFlagrun(interval=50)
+    seed = rand(1:100000)
+    env = HrlMuJoCoEnvs.AntFlagrun(interval=200, seed=seed)
 
     obmean, obstd = ScalableEs.mean(obstat), ScalableEs.std(obstat)
     states = collectstates(model, env, obmean, obstd)
@@ -28,6 +28,7 @@ function runsaved(runname, suffix)
     # viewport = render(engine)
     
     visualize(env, controller = e -> act(e, model, obmean, obstd), trajectories=[states])
+    states
 end
 
 function render(e::LyceumMuJoCoViz.Engine)
@@ -41,6 +42,9 @@ end
 
 function act(e, model, obmean, obstd)
     obs = getobs(e)
+    if sqeuclidean(e.target, HrlMuJoCoEnvs._torso_xy(e)) <= 1
+        println("REACHED TARGET")
+    end
     setaction!(e, ScalableEs.forward(model, obs, obmean, obstd))
 end
 
@@ -59,17 +63,20 @@ function collectstates(nn::Chain, env, obmean, obstd)
 		step!(env)
 
         states[:, t] .= getstate(env)
-		
-        # if Euclidean()(HrlMuJoCoEnvs._torso_xy(env), env.target) < 1
-        #     @show "MADE IT!"
-        # end
+
+        if sqeuclidean(env.target, HrlMuJoCoEnvs._torso_xy(env)) < 1
+            println("Got target")
+        end
 
         r += getreward(env)
-		if isdone(env) break end
+		if isdone(env) 
+            println("dead")    
+            break
+        end
 	end
 
 	@show r geteval(env)
 	states
 end
 
-runsaved("randpos-cossinesim", "gen40")
+runsaved("offset-200-angletarg-targrew", "gen520")

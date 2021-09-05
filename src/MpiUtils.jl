@@ -1,15 +1,9 @@
-module MpiUtils
-
-import MPI: MPI, Comm
-import Base: size
-
-
-export MPIROOT, size, isroot, mpi_shared_array, gather, bcast, allreduce
+export MPIROOT, isroot, mpi_shared_array, gather, bcast, allreduce
 
 const MPIROOT = 0
 
 isroot(comm::Comm)::Bool = MPI.Comm_rank(comm) == MPIROOT
-size(comm::Comm) = MPI.Comm_size(comm)
+Base.size(comm::Comm) = MPI.Comm_size(comm)
 gather(items, comm::Comm; root=MPIROOT) = MPI.Gather(items, root, comm)
 # scatter(item, comm::Comm; root=MPIROOT) = MPI.Scatter(fill(item, size(comm)), typeof(item), root, comm)
 bcast(item, comm::Comm; root=MPIROOT) = MPI.bcast(item, root, comm)
@@ -36,6 +30,4 @@ function mpi_shared_array(node_comm::MPI.Comm, ::Type{T}, sz::Tuple{Vararg{Int}}
         bufptr = convert(Ptr{T}, bufvoidptr)
     end
     win, unsafe_wrap(Array, bufptr, sz)
-end
-
 end

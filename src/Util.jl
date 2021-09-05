@@ -1,9 +1,3 @@
-module Util
-
-export EsResult, rank
-
-import StatsBase
-
 struct EsResult{T}
 	fit::T
 	ind::Int
@@ -24,6 +18,4 @@ rank(results::Vector{EsResult{T}}) where T = map((r,f)->EsResult(f, r.ind, r.ste
 function StatsBase.summarystats(results::Vector{EsResult{T}}) where T
 	fits = map(r->r.fit, results)
 	StatsBase.summarystats(fits)
-end
-
 end
