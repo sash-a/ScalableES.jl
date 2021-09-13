@@ -19,7 +19,7 @@ function run()
     comm::MPI.Comm = MPI.COMM_WORLD
     node_comm::MPI.Comm = MPI.Comm_split_type(comm, MPI.MPI_COMM_TYPE_SHARED, 0)
 
-    runname = "tst"
+    runname = "flagrun-negdistr+prox-rew"
     println("Run name: $(runname)")
     if ScalableES.isroot(comm)
         savedfolder = joinpath(@__DIR__, "..", "saved", runname)
@@ -33,10 +33,9 @@ function run()
         println("MuJoCo activated")
     
         println("n threads $(Threads.nthreads())")
-        
 
-        seed = 4321  # auto generate and share this?
-        envs = LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "ant.xml", Threads.nthreads(); interval=100, seed=seed)
+        seed = nothing  # auto generate and share this?
+        envs = LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "ant.xml", Threads.nthreads(); interval=50, seed=seed)
         # envs = HrlMuJoCoEnvs.tconstruct(HrlMuJoCoEnvs.AntV2, Threads.nthreads())
         env = first(envs)
         actsize::Int = length(actionspace(env))

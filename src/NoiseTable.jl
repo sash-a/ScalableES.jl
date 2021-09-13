@@ -15,10 +15,13 @@ function NoiseTable(table_size::Int, noise_len::Int, σ::Float32, comm::MPI.Comm
     NoiseTable(shared_arr, noise_len, σ), win  # so that win can be freed
 end
 
-Base.rand(nt::NoiseTable) = rand(1:length(nt.noise) - nt.noise_len)
+Base.rand(nt::NoiseTable) = rand(nt, nt.noise_len)
+Base.rand(nt::NoiseTable, len::Int) = rand(1:length(nt.noise) - len)
 
-StatsBase.sample(nt::NoiseTable, pos::Int) = nt.noise[pos:pos + nt.noise_len - 1]
+
+StatsBase.sample(nt::NoiseTable, pos::Int, len::Int) = nt.noise[pos:pos + len - 1]
+StatsBase.sample(nt::NoiseTable, pos::Int) = StatsBase.sample(nt, pos, nt.noise_len)
 function StatsBase.sample(nt::NoiseTable)
-    i = rand_ind(nt)
+    i = rand(nt)
     StatsBase.sample(nt, i), i
 end
