@@ -429,7 +429,7 @@ uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 version = "0.9.13"
 
 [[HrlMuJoCoEnvs]]
-deps = ["Distances", "Distributions", "LightXML", "LinearAlgebra", "LyceumBase", "LyceumMuJoCo", "LyceumMuJoCoViz", "MuJoCo", "Random", "Shapes", "UnsafeArrays"]
+deps = ["Distances", "Distributions", "LightXML", "LinearAlgebra", "LyceumBase", "LyceumMuJoCo", "LyceumMuJoCoViz", "MuJoCo", "Random", "Shapes", "StatsBase", "UnsafeArrays"]
 path = "/home/sasha/Documents/es/HrlMuJoCoEnvs/"
 uuid = "b8da5b23-2d8f-482c-ba9f-9eec9bcb73c4"
 version = "0.1.0"

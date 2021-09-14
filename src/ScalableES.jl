@@ -2,6 +2,7 @@ module ScalableES
 
 using MPI: MPI, Comm
 using Base.Threads
+using SharedArrays
 
 using LyceumMuJoCo
 using MuJoCo
@@ -28,7 +29,7 @@ include("Util.jl")
 
 export run_es
 
-function run_es(name::String, nn, envs, comm::Comm; 
+function run_es(name::String, nn, envs, comm::Union{Comm, ThreadComm}; 
 				gens=150, npolicies=256, steps=500, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0)
 	@assert npolicies / size(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(size(comm)))"
 
@@ -39,7 +40,7 @@ function run_es(name::String, nn, envs, comm::Comm;
 	obssize = length(obsspace(env))
 
 	println("Creating policy")
-	p = ScalableES.Policy(nn)
+	p = ScalableES.Policy(nn, comm)
 	bcast_policy!(p, comm)
 
 	println("Creating noise table")
@@ -55,7 +56,9 @@ function run_es(name::String, nn, envs, comm::Comm;
 	model = to_nn(p)
 	@save joinpath("saved", name, "model-obstat-opt-final.bson") model obstat opt
 
-	MPI.free(win)
+	if win !== nothing
+		MPI.free(win)
+	end
 end
 
 
@@ -69,7 +72,7 @@ function run_gens(n::Int,
 				  opt::AbstractOptim, 
 				  obstat::AbstractObstat, 
 				  logger,
-				  comm::Comm)
+				  comm::Union{Comm, ThreadComm})
 	tot_steps = 0
 	eval_score = -Inf
 	env = first(envs)
@@ -136,8 +139,8 @@ function eval_net(nn::Chain, env, obmean, obstd, steps::Int, episodes::Int)
 	r / episodes, step, obs
 end
 
-function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::Comm; l2coeff=0.005f0)  # TODO rename this because it mutates π
-	local_results, obstat = evaluate(π, nt, f, envs, n ÷ size(comm) ÷ 2)
+function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::Union{Comm, ThreadComm}; l2coeff=0.005f0)  # TODO rename this because it mutates π
+	local_results, obstat = evaluate(π, nt, f, envs, n ÷ size(comm) ÷ 2, comm)
 	results, obstat = share_results(local_results, obstat, comm)
 
 	if isroot(comm)
@@ -150,9 +153,9 @@ function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::Comm; l2c
 	results, obstat
 end
 
-function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int)
+function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, comm::Union{Comm, ThreadComm})
 	# TODO store fits as Float32
-	results = make_result_vec(n * 2, pol)  # [positive EsResult 1, negative EsResult 1, ...]
+	results = make_result_vec(n * 2, pol, comm)  # [positive EsResult 1, negative EsResult 1, ...]
 	obstat = make_obstat(length(obsspace(first(envs))), pol)
 
 	l = ReentrantLock()
@@ -168,6 +171,7 @@ function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int)
 		if rand() < 0.01
 			Base.@lock l begin
 				# obstat = add_obs(obstat, vcat(pobs, nobs))
+				# TODO shared arrays here also?
 				obstat = add_obs(obstat, pobs)
 				obstat = add_obs(obstat, nobs)
 			end
@@ -199,22 +203,30 @@ function optimize!(π::Policy, ranked::Vector{EsResult{T}}, nt::NoiseTable, opti
 	π.θ .+= optimize(optim, grad)
 end
 
-make_result_vec(n::Int, ::Policy) = Vector{EsResult{Float64}}(undef, n)
+make_result_vec(n::Int, ::Policy, ::Comm) = Vector{EsResult{Float64}}(undef, n)
+make_result_vec(n::Int, ::Policy, ::ThreadComm) = SharedVector{EsResult{Float64}}(n)
+
 make_obstat(shape, ::Policy) = Obstat(shape, 0f0)
 
 # MPI stuff
-function share_results(local_results::Vector{T}, local_obstat::S, comm::Comm) where S <: AbstractObstat where T <: AbstractResult
+function share_results(local_results::AbstractVector{T}, local_obstat::S, comm::Comm) where S <: AbstractObstat where T <: AbstractResult
 	# local_obstat = Obstat{length(sum), Float32}(SVector{length(sum), Float32}(sum), SVector{length(sum), Float32}(ssq), cnt)
 	results = gather(local_results, comm)
 	obstat = allreduce(local_obstat, +, comm)
 
 	results, obstat
 end
+function share_results(local_results::AbstractVector{T}, local_obstat::S, ::ThreadComm) where S <: AbstractObstat where T <: AbstractResult
+	local_results, local_obstat  # no need to do any sharing if not using mpi
+end
+
 
 function bcast_policy!(π::Policy, comm::Comm)
 	MPI.Barrier(comm)
 	π.θ = bcast(π.θ, comm)
 end
+
+function bcast_policy!(::Policy, ::ThreadComm) end # no need to do any sharing if not using mpi
 
 # nn methods
 function forward(nn, x, obmean, obstd; rng=Random.GLOBAL_RNG)
@@ -229,4 +241,4 @@ function forward(nn, x, obmean, obstd; rng=Random.GLOBAL_RNG)
 	out .+ r
 end
 
-end
+end  # module

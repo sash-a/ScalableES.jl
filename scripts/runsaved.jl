@@ -81,4 +81,4 @@ function collectstates(nn::Chain, env, obmean, obstd)
 	states
 end
 
-runsaved("testobstat", "gen400")
+runsaved("flagrun-fixedrew", "gen200")
