@@ -16,7 +16,7 @@ function runsaved(runname, suffix)
     @load "saved/$(runname)/model-obstat-opt-$suffix.bson" model obstat opt
     
     mj_activate("/home/sasha/.mujoco/mjkey.txt")
-    env = first(LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "ant.xml", 1; interval=100, seed=nothing))
+    env = first(LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "ant.xml", 1; interval=200, seed=nothing))
 
     # nob = ScalableES.Obstat(length(obstat.sum), 1f-2)
     # obmean, obstd = ScalableES.mean(nob), ScalableES.std(nob)
@@ -81,4 +81,4 @@ function collectstates(nn::Chain, env, obmean, obstd)
 	states
 end
 
-runsaved("flagrun-fixedrew", "gen200")
+runsaved("flagrun-one_minus_dist_percent", "gen600")

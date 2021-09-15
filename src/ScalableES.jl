@@ -95,23 +95,12 @@ function run_gens(n::Int,
 			model = to_nn(p)
 			if gen_eval > eval_score || i % 10 == 0
 				println("Saving model with eval score $gen_eval")
-				eval_score = gen_eval
 				path = joinpath("saved", name, "model-obstat-opt-gen$i.bson")
 				@save path model obstat opt
 			end
+			eval_score = max(eval_score, gen_eval)
 
-			# print info
-			fit = first(f(model, env))
-			ss = summarystats(res)
-			println("Main fit: $(fit)")
-			println("Total steps: $tot_steps")
-			println("Time: $(now() - t)")
-			println(ss)
-			with_logger(logger) do
-				@info "" main_fitness=fit log_step_increment=0
-				@info "" summarystat=ss log_step_increment=0
-				@info "" total_steps=tot_steps log_step_increment=1
-			end
+			loginfo(logger, first(f(model, env)), res, tot_steps, t)
 		end
 	end
 end

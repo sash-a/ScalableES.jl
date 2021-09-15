@@ -10,18 +10,18 @@ using Base.Threads
 using Flux
 using Dates
 using Random
+using ArgParse
 
 using HrlMuJoCoEnvs
 
 
-function threadedrun()
-    runname = "sharredarrtest22"
+function threadedrun(runname, mjpath)
     savedfolder = joinpath(@__DIR__, "..", "saved", runname)
     if !isdir(savedfolder)
         mkdir(savedfolder)
     end
 
-    mj_activate("/home/sasha/.mujoco/mjkey.txt")
+    mj_activate(mjpath)
     println("MuJoCo activated")
 
     println("n threads $(Threads.nthreads())")
@@ -43,4 +43,14 @@ function threadedrun()
 
 end
 
-threadedrun()
+s = ArgParseSettings()
+@add_arg_table s begin
+    "runname"
+        required=true
+        help="Name of the run for saving policies and tensorboard logs"
+    "mjpath"
+        required=true
+        help="path/to/mujoco/mjkey.txt"
+end
+args = parse_args(s)
+threadedrun(args["runname"], args["mjpath"])

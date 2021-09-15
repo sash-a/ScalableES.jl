@@ -31,3 +31,16 @@ function StatsBase.summarystats(results::AbstractVector{EsResult{T}}) where T
 	fits = map(r->r.fit, results)
 	StatsBase.summarystats(fits)
 end
+
+function loginfo(tblogger, main_fit, results::AbstractVector{T}, tot_steps::Int, start_time) where T
+	ss = summarystats(results)
+	println("Main fit: $(fit)")
+	println("Total steps: $tot_steps")
+	println("Time: $(now() - start_time)")
+	println(ss)
+	with_logger(tblogger) do
+		@info "" main_fitness=main_fit log_step_increment=0
+		@info "" summarystat=ss log_step_increment=0
+		@info "" total_steps=tot_steps log_step_increment=1
+	end
+end
