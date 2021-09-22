@@ -53,8 +53,7 @@ function run_es(name::String, nn, envs, comm::Union{Comm, ThreadComm};
 	f = (nn, e, obmean, obstd) -> eval_net(nn, e, obmean, obstd, steps, episodes)
 	run_gens(gens, name, p, nt, f, envs, npolicies, opt, obstat, tblg, comm)
 
-	model = to_nn(p)
-	@save joinpath("saved", name, "model-obstat-opt-final.bson") model obstat opt
+	@save joinpath("saved", name, "policy-obstat-opt-final.bson") p obstat opt
 
 	if win !== nothing
 		MPI.free(win)
@@ -92,15 +91,14 @@ function run_gens(n::Int,
 
 			# save model
 			gen_eval = geteval(env)
-			model = to_nn(p)
 			if gen_eval > eval_score || i % 10 == 0
 				println("Saving model with eval score $gen_eval")
-				path = joinpath("saved", name, "model-obstat-opt-gen$i.bson")
-				@save path model obstat opt
+				path = joinpath("saved", name, "policy-obstat-opt-gen$i.bson")
+				@save path p obstat opt
 			end
 			eval_score = max(eval_score, gen_eval)
-
-			loginfo(logger, first(f(model, env)), res, tot_steps, t)
+			
+			loginfo(logger, first(f(to_nn(p), env)), res, tot_steps, t)
 		end
 	end
 end
