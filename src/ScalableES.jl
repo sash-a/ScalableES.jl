@@ -51,7 +51,8 @@ function run_es(name::String, nn, envs, comm::Union{Comm, ThreadComm};
 
 	println("Initialization done")
 	f = (nn, e, obmean, obstd) -> eval_net(nn, e, obmean, obstd, steps, episodes)
-	run_gens(gens, name, p, nt, f, envs, npolicies, opt, obstat, tblg, comm)
+	evalfn = (nn, e, obmean, obstd) -> first(eval_net(nn, e, obmean, obstd, steps, episodes))
+	run_gens(gens, name, p, nt, f, evalfn, envs, npolicies, opt, obstat, tblg, comm)
 
 	@save joinpath("saved", name, "policy-obstat-opt-final.bson") p obstat opt
 
@@ -65,7 +66,8 @@ function run_gens(n::Int,
 				  name::String,
 				  p::AbstractPolicy, 
 		 		  nt::NoiseTable, 
-  				  fn, 
+  				  fn,
+				  eval_fn, 
 				  envs, 
 				  npolicies::Int, 
 				  opt::AbstractOptim, 
@@ -90,15 +92,17 @@ function run_gens(n::Int,
 			tot_steps += sumsteps(res)
 
 			# save model
-			gen_eval = geteval(env)
-			if gen_eval > eval_score || i % 10 == 0
+			nn = to_nn(p)
+			gen_eval = eval_score
+			if i % 10 == 0 || i == 1
+				gen_eval = eval_fn(nn, env, mean(obstat), std(obstat))
 				println("Saving model with eval score $gen_eval")
 				path = joinpath("saved", name, "policy-obstat-opt-gen$i.bson")
 				@save path p obstat opt
 			end
 			eval_score = max(eval_score, gen_eval)
 			
-			loginfo(logger, first(f(to_nn(p), env)), res, tot_steps, t)
+			loginfo(logger, gen_eval, res, tot_steps, t)
 		end
 	end
 end

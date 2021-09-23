@@ -34,7 +34,7 @@ end
 
 function loginfo(tblogger, main_fit, results::AbstractVector{T}, tot_steps::Int, start_time) where T
 	ss = summarystats(results)
-	println("Main fit: $(fit)")
+	println("Main fit: $main_fit")
 	println("Total steps: $tot_steps")
 	println("Time: $(now() - start_time)")
 	println(ss)
