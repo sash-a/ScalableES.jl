@@ -27,13 +27,15 @@ function threadedrun(runname, mjpath)
     println("n threads $(Threads.nthreads())")
 
     seed = 123  # auto generate and share this?
-    envs = LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "ant.xml", Threads.nthreads(); interval=200, seed=seed)
+    envs = LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "easier_ant.xml", Threads.nthreads(); interval=25, cropqpos=false, seed=seed)
     # envs = HrlMuJoCoEnvs.tconstruct(HrlMuJoCoEnvs.AntV2, Threads.nthreads())
     env = first(envs)
     actsize::Int = length(actionspace(env))
     obssize::Int = length(obsspace(env))
+    @show obssize
 
     nn = Chain(Dense(obssize, 256, tanh; initW=Flux.glorot_normal, initb=Flux.glorot_normal),
+                Dense(256, 256, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
                 Dense(256, 256, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
                 Dense(256, actsize, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal))
     println("nn created")
