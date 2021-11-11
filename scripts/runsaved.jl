@@ -9,7 +9,7 @@ using Distances
 
 using Flux
 
-using BSON:@load
+using BSON: @load, load
 using StaticArrays
 using SharedArrays
 using Distributed
@@ -17,11 +17,24 @@ using Distributed
 function runsaved(runname, suffix)
     @load "saved/$(runname)/policy-obstat-opt-$suffix.bson" p obstat opt
     
+    nn = Chain(Dense(32, 256, tanh; initW=Flux.glorot_normal, initb=Flux.glorot_normal),
+                Dense(256, 256, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
+                Dense(256, 256, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
+                Dense(256, 8, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
+                x -> x .* 30)
+
+    @show size(p.θ)
+    @show sum(length, params(nn))
+    
     mj_activate("/home/sasha/.mujoco/mjkey.txt")
-    env = HrlMuJoCoEnvs.AntFlagrun(;cropqpos=true)
+    env = HrlMuJoCoEnvs.AntFlagrun(;cropqpos=false)
     @show obsspace(env) length(obsspace(env)) getsim(env).m.nq getsim(env).m.nv
     @show size(getobs(env))
-    model = Base.invokelatest(ScalableES.to_nn, p)
+
+    pol = ScalableES.Policy(nn)
+    pol.θ = p.θ
+
+    model = ScalableES.to_nn(pol)
     @show size(first(model.layers).W)
 
     obmean, obstd = ScalableES.mean(obstat), ScalableES.std(obstat)
@@ -36,7 +49,6 @@ end
 
 function act(e, model, obmean, obstd)
     obs = getobs(e)
-    @show size(getobs)
     # if sqeuclidean(e.target, HrlMuJoCoEnvs._torso_xy(e)) <= 1
     #     println("REACHED TARGET")
     # end
@@ -74,4 +86,4 @@ function collectstates(nn::Chain, env, obmean, obstd)
 	states
 end
 
-runsaved("test_robant", "gen600")
+runsaved("remote/flagrun-i25-pretrain-fix-x30/", "gen600")

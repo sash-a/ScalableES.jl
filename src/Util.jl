@@ -44,3 +44,15 @@ function loginfo(tblogger, main_fit, results::AbstractVector{T}, tot_steps::Int,
 		@info "" total_steps=tot_steps log_step_increment=1
 	end
 end
+
+function checkpoint(i::Int, name::String, p, obstat, opt, eval_fn, env, prev_eval)
+	if i % 10 == 0 || i == 1
+		nn = to_nn(p)
+		prev_eval = eval_fn(nn, env, mean(obstat), std(obstat))
+		println("Saving model with eval score $prev_eval")
+		path = joinpath("saved", name, "policy-obstat-opt-gen$i.bson")
+		@save path p obstat opt
+	end
+
+	prev_eval
+end

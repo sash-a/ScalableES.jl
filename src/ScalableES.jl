@@ -6,10 +6,12 @@ using SharedArrays
 
 using LyceumMuJoCo
 using MuJoCo
+using HrlMuJoCoEnvs
 
 using Flux
 using Random
 using IterTools
+using Distances
 using StaticArrays
 using Distributions
 using StatsBase
@@ -26,8 +28,7 @@ include("Optim.jl")
 include("Obstat.jl")
 include("Util.jl")
 
-
-export run_es
+export run_es, run_nses
 
 function run_es(name::String, nn, envs, comm::Union{Comm, ThreadComm}; 
 				gens=150, npolicies=256, steps=500, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0)
@@ -89,19 +90,11 @@ function run_gens(n::Int,
 
 		if isroot(comm) 
 			println("\n\nGen $i")
-			tot_steps += sumsteps(res)
 
-			# save model
-			nn = to_nn(p)
-			gen_eval = eval_score
-			if i % 10 == 0 || i == 1
-				gen_eval = eval_fn(nn, env, mean(obstat), std(obstat))
-				println("Saving model with eval score $gen_eval")
-				path = joinpath("saved", name, "policy-obstat-opt-gen$i.bson")
-				@save path p obstat opt
-			end
+			gen_eval = checkpoint(i, name, p, obstat, opt, eval_fn, env, eval_score)
 			eval_score = max(eval_score, gen_eval)
 			
+			tot_steps += sumsteps(res)
 			loginfo(logger, gen_eval, res, tot_steps, t)
 		end
 	end
@@ -112,7 +105,7 @@ function eval_net(nn::Chain, env, obmean, obstd, steps::Int, episodes::Int)
 	r = 0.
 	step = 0
 
-	for i in 1:episodes
+	for e in 1:episodes
 		LyceumMuJoCo.reset!(env)
 		for i in 1:steps
 			ob = getobs(env)
@@ -144,11 +137,11 @@ function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::Union{Com
 	results, obstat
 end
 
-function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, comm::Union{Comm, ThreadComm})
-	# TODO store fits as Float32
-	results = make_result_vec(n * 2, pol, comm)  # [positive EsResult 1, negative EsResult 1, ...]
-	obstat = make_obstat(length(obsspace(first(envs))), pol)
 
+"""
+Results and obstat are empty containers of the correct type
+"""
+function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, results, obstat)
 	l = ReentrantLock()
 
 	Threads.@threads for i in 1:n
@@ -175,8 +168,16 @@ function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, comm::Union{Comm, Th
 	results, obstat
 end
 
+function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, comm::Union{Comm, ThreadComm})
+	# TODO store fits as Float32
+	results = make_result_vec(n * 2, pol, comm)  # [positive EsResult 1, negative EsResult 1, ...]
+	obstat = make_obstat(length(obsspace(first(envs))), pol)
+
+	evaluate(pol, nt, f, envs, n, results, obstat)
+end
+
 # Policy methods
-noiseify(pol::Policy, nt::NoiseTable) = noiseify(pol, nt, rand(nt))
+noiseify(pol::AbstractPolicy, nt::NoiseTable) = noiseify(pol, nt, rand(nt))
 function noiseify(pol::Policy, nt::NoiseTable, ind::Int)
 	noise = sample(nt, ind)
 	Policy(pol.θ .+ noise, pol._re), Policy(pol.θ .- noise, pol._re), ind
@@ -211,13 +212,11 @@ function share_results(local_results::AbstractVector{T}, local_obstat::S, ::Thre
 	local_results, local_obstat  # no need to do any sharing if not using mpi
 end
 
-
+function bcast_policy!(::AbstractPolicy, ::ThreadComm) end # no need to do any sharing if not using mpi
 function bcast_policy!(π::Policy, comm::Comm)
 	MPI.Barrier(comm)
 	π.θ = bcast(π.θ, comm)
 end
-
-function bcast_policy!(::Policy, ::ThreadComm) end # no need to do any sharing if not using mpi
 
 # nn methods
 function forward(nn, x, obmean, obstd; rng=Random.GLOBAL_RNG)
@@ -231,5 +230,7 @@ function forward(nn, x, obmean, obstd; rng=Random.GLOBAL_RNG)
 
 	out .+ r
 end
+
+include("novelty/ScalableNsEs.jl")
 
 end  # module
