@@ -63,6 +63,7 @@ function run_gens(n::Int,
     novs = [a.novelty for a in archive]  # archive has 1 nov for each policy
     
     record_behv_freq = 20
+    w = 0.
 
     for i in 1:n
         # selecting the current policy. Higher novelty=higher selection chance
@@ -73,10 +74,10 @@ function run_gens(n::Int,
         #  but that doesn't allow for obmean and obstd to be updated in the 
         #  partial function f
         f = (nn, e) -> fn(nn, e, mean(obstat), std(obstat))
-        res, gen_obstat = step_es(p, nt, f, envs, npolicies, opt, archive, episodes, steps, record_behv_freq, comm)
+        res, gen_obstat = step_es(p, nt, f, envs, npolicies, opt, archive, episodes, steps, record_behv_freq, w, comm)
         obstat += gen_obstat
         update_archive!(archive, p, 10, (nn) -> behv_fn(nn, env, mean(obstat), std(obstat)))
-        @show length(archive)
+        w = min(1., w + 2. / n)
 
         if isroot(comm)
             println("\n\nGen $i")
@@ -91,8 +92,7 @@ function run_gens(n::Int,
     end
 end
 
-function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, archive, rollouts, steps, interval, comm::Union{Comm,ThreadComm}; l2coeff=0.005f0)  # TODO rename this because it mutates π
-    w = 0.
+function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, archive, rollouts, steps, interval, w::Float64, comm::Union{Comm,ThreadComm}; l2coeff=0.005f0)  # TODO rename this because it mutates π
     results = SharedVector{NsEsResult{Float64,rollouts,steps ÷ interval}}(n)
     obstat = Obstat(length(obsspace(first(envs))), 0f0)
 	

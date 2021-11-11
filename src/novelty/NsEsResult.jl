@@ -28,7 +28,7 @@ function ScalableES.sumsteps(res::AbstractVector{T}) where T <: NsEsResult
     sumsteps(map(r -> r.result, res))
 end
 
-function ScalableES.loginfo(tblogger, main_fit, results::AbstractVector{T}, tot_steps::Int, start_time) where T
+function ScalableES.loginfo(tblogger, main_fit, results::AbstractVector{T}, tot_steps::Int, start_time) where T <: NsEsResult
 	fitstats = summarystats(map(r->r.result, results))
     novstats = summarystats(map(r->r.novelty, results))
 
