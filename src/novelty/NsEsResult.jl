@@ -28,19 +28,29 @@ function ScalableES.sumsteps(res::AbstractVector{T}) where T <: NsEsResult
     sumsteps(map(r -> r.result, res))
 end
 
-function ScalableES.loginfo(tblogger, main_fit, results::AbstractVector{T}, tot_steps::Int, start_time) where T <: NsEsResult
-	fitstats = summarystats(map(r->r.result, results))
-    novstats = summarystats(map(r->r.novelty, results))
-
+function ScalableES.loginfo(tblogger, 
+                            main_fit, 
+                            fitstats::StatsBase.SummaryStats, 
+                            novstats::StatsBase.SummaryStats, 
+                            tot_steps::Int, 
+                            start_time,
+                            w,
+                            tsb_fit)
 	println("Main fit: $main_fit")
+    println("Time since best fit: $tsb_fit")
+    println("Fitness weight: $w")
 	println("Total steps: $tot_steps")
 	println("Time: $(now() - start_time)")
 	println("Fitness stats:\n$fitstats")
 	println("Novelty stats:\n$novstats")
+    println("---------------------------------------------")
 
 	with_logger(tblogger) do
 		@info "" main_fitness=main_fit log_step_increment=0
+        @info "" tsb_fit=tsb_fit log_step_increment=0
+        @info "" fit_w=w log_step_increment=0
 		@info "" fitstats=fitstats log_step_increment=0
+		@info "" summarystat=fitstats log_step_increment=0
 		@info "" novstats=novstats log_step_increment=0
 		@info "" total_steps=tot_steps log_step_increment=1
 	end

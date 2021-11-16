@@ -1,3 +1,5 @@
+# TODO this should be its own package
+
 include("Path.jl")
 include("NsEsResult.jl")
 include("Novelty.jl")
@@ -29,7 +31,8 @@ function run_nses(name::String, nns, envs, comm::Union{Comm, ThreadComm};
     f = (nn, e, obmean, obstd) -> nsr_eval_net(nn, e, obmean, obstd, steps, episodes)
     behvfn = (nn, e, obmean, obstd) -> last(first(nsr_eval_net(nn, e, obmean, obstd, steps, episodes)))
     evalfn = (nn, e, obmean, obstd) -> first(first(nsr_eval_net(nn, e, obmean, obstd, steps, episodes; show_end_pos=true)))
-    run_gens(gens, name, ps, nt, f, behvfn, evalfn, envs, npolicies, opt, obstat, tblg, steps, episodes, comm)
+    w_schedule = (w, fit, best_fit, tsb_fit) -> weight_schedule(w, fit, best_fit, tsb_fit; min_w=0.8)
+    run_gens(gens, name, ps, nt, f, behvfn, evalfn, envs, npolicies, opt, obstat, tblg, steps, episodes, w_schedule, comm)
 
     for (i, p) in enumerate(ps)
         @save joinpath("saved", name, "policy-obstat-opt-final-$i.bson") p obstat opt
@@ -54,6 +57,7 @@ function run_gens(n::Int,
                 logger,
                 steps::Int,
                 episodes::Int,
+                w_schedule,
                 comm::Union{Comm,ThreadComm}) where T <: AbstractPolicy
     tot_steps = 0
     eval_score = -Inf
@@ -61,33 +65,40 @@ function run_gens(n::Int,
 
     archive = init_archive(policies, (nn) -> behv_fn(nn, env, mean(obstat), std(obstat)))
     novs = [a.novelty for a in archive]  # archive has 1 nov for each policy
-    
+    tsb_fit = 0  # time since best fitness
+    best_fit = -Inf
+    w = 1.
     record_behv_freq = 20
-    w = 0.
 
     for i in 1:n
+        t = now()
         # selecting the current policy. Higher novelty=higher selection chance
         p_idx = sample(1:length(policies), Weights(novs))
-        p = policies[p_idx]  
-        t = now()
+        p = policies[p_idx]
         # I dislike this and would rather f is simply passed to this function, 
         #  but that doesn't allow for obmean and obstd to be updated in the 
         #  partial function f
         f = (nn, e) -> fn(nn, e, mean(obstat), std(obstat))
         res, gen_obstat = step_es(p, nt, f, envs, npolicies, opt, archive, episodes, steps, record_behv_freq, w, comm)
         obstat += gen_obstat
+
         update_archive!(archive, p, 10, (nn) -> behv_fn(nn, env, mean(obstat), std(obstat)))
-        w = min(1., w + 2. / n)
+        novs[p_idx] = archive[end].novelty  # updates chance of selecting policy again
+
+        # calculating stats once
+        fitstats = summarystats(map(r->r.result, res))
+        novstats = summarystats(map(r->r.novelty, res))
+
+        w, best_fit, tsb_fit = w_schedule(w, fitstats.mean, best_fit, tsb_fit)
 
         if isroot(comm)
-            println("\n\nGen $i")
+            println("\nGen $i")
 
             gen_eval = checkpoint(i, name, p, obstat, opt, eval_fn, env, eval_score)
-            @show gen_eval
             eval_score = max(eval_score, gen_eval)
 
             tot_steps += sumsteps(res)
-            loginfo(logger, gen_eval, res, tot_steps, t)
+            loginfo(logger, gen_eval, fitstats, novstats, tot_steps, t, w, tsb_fit)
         end
     end
 end
@@ -140,9 +151,8 @@ function nsr_eval_net(nn::Chain, env, obmean, obstd, steps::Int, episodes::Int; 
 	# @show rew step
     if show_end_pos
         pos = HrlMuJoCoEnvs._torso_xy(env)
-        @show pos
-        @show euclidean(pos, [0, 0])
-        print("")
+        @show pos euclidean(pos, [0, 0])
+        print("\n\n")
     end
 	(r / episodes, paths), step, obs
 end

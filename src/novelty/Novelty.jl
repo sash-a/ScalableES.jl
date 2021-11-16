@@ -55,3 +55,36 @@ function novelty(behaviour::AbstractPath, archive_behaviours::AbstractVector{T},
     sumsmallest / n  # get nsmallest and return mean
 end
 
+"""
+Changes the weighting between novelty and fitness.  
+If `fit` has not increased after `tsb_limit` generations then weight more towards novelty. 
+If `fit > best_fit` set `w = max_w`
+
+## Arguments
+
+- `w`: the current weighting of fitness vs novelty (`1 - w`)
+- `fit`: fitness this generation
+- `best_fit`: highest fitness seen over all generations
+- `tsb_fit`: number of generations since `best_fit` was achieved (Time Since Best)
+- `tsb_limit=10`: number of generations since best fitness before putting more weight towards novelty
+- `δw=0.05`: change in weighting after `tsb_limit`
+- `max_w=1`: maximum value weight can have
+- `min_w=0`: minimum value weight can have
+"""
+function weight_schedule(w, fit, best_fit, tsb_fit; tsb_limit=10, δw=0.05, max_w=1.0, min_w=0.0)
+    tsb_fit += 1
+
+    if fit > best_fit
+        best_fit = fit
+        tsb_fit = 0
+        w = max_w  # w = min(w + δw, max_w)
+    end
+
+    # the higher novelty is weighted the more time allowed for improvement
+    if tsb_fit > tsb_limit + (1 - w) * 20
+        w = max(w - δw, min_w)
+        tsb_fit = 0
+    end
+    
+    w, best_fit, tsb_fit
+end

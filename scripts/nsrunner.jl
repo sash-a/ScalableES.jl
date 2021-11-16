@@ -28,20 +28,22 @@ function threadedrun(runname, mjpath)
 
     seed = 123  # auto generate and share this?
     # envs = LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "easier_ant.xml", Threads.nthreads(); interval=25, cropqpos=false, seed=seed)
-    envs = HrlMuJoCoEnvs.tconstruct(HrlMuJoCoEnvs.AntV2, Threads.nthreads())
+    envs = HrlMuJoCoEnvs.tconstruct(HrlMuJoCoEnvs.Ant, Threads.nthreads(), joinpath(HrlMuJoCoEnvs.AssetManager.dir, "easier_ant_geared.xml"))
     env = first(envs)
     actsize::Int = length(actionspace(env))
     obssize::Int = length(obsspace(env))
     @show obssize
 
+    npolicies = 3
+
     nns = [Chain(Dense(obssize, 256, tanh; initW=Flux.glorot_normal, initb=Flux.glorot_normal),
                 Dense(256, 256, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
                 Dense(256, 256, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
-                Dense(256, actsize, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
-                x -> x .* 30) for _ in 1:3]
+                Dense(256, actsize, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal)) for _ in 1:npolicies]
+
     println("nn created")
     t = now()
-    run_nses(runname, nns, envs, ScalableES.ThreadComm(); gens=1000, episodes=3, steps=500, npolicies=128)
+    run_nses(runname, nns, envs, ScalableES.ThreadComm(); gens=1000, episodes=5, steps=500, npolicies=256)
     println("Total time: $(now() - t)")
 
 end
