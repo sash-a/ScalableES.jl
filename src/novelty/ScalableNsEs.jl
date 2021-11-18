@@ -43,6 +43,13 @@ function run_nses(name::String, nns, envs, comm::Union{Comm, ThreadComm};
     end
 end
 
+"""
+## Arguments
+
+- `policies`:   all policies in the population
+- `npolicies`:  the number of policies to rollout in a generation
+- `w_schedule`: a function that changes the weighting of fitness/novelty depending on policy performance
+"""
 function run_gens(n::Int, 
                 name::String,
                 policies::Vector{T},
@@ -51,7 +58,7 @@ function run_gens(n::Int,
                 behv_fn,
                 eval_fn, 
                 envs, 
-                npolicies::Int, 
+                npolicies::Int,
                 opt::AbstractOptim, 
                 obstat::AbstractObstat, 
                 logger,
@@ -85,11 +92,10 @@ function run_gens(n::Int,
         update_archive!(archive, p, 10, (nn) -> behv_fn(nn, env, mean(obstat), std(obstat)))
         novs[p_idx] = archive[end].novelty  # updates chance of selecting policy again
 
-        # calculating stats once
-        fitstats = summarystats(map(r->r.result, res))
-        novstats = summarystats(map(r->r.novelty, res))
 
-        w, best_fit, tsb_fit = w_schedule(w, fitstats.mean, best_fit, tsb_fit)
+        # calculating stats once
+        meanf = meanfit(res)
+        w, best_fit, tsb_fit = w_schedule(w, meanf, best_fit, tsb_fit)
 
         if isroot(comm)
             println("\nGen $i")
@@ -98,20 +104,21 @@ function run_gens(n::Int,
             eval_score = max(eval_score, gen_eval)
 
             tot_steps += sumsteps(res)
-            loginfo(logger, gen_eval, fitstats, novstats, tot_steps, t, w, tsb_fit)
+            loginfo(logger, gen_eval, res, tot_steps, t, w, tsb_fit)
         end
     end
 end
 
 function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, archive, rollouts, steps, interval, w::Float64, comm::Union{Comm,ThreadComm}; l2coeff=0.005f0)  # TODO rename this because it mutates π
-    results = SharedVector{NsEsResult{Float64,rollouts,steps ÷ interval}}(n)
-    obstat = Obstat(length(obsspace(first(envs))), 0f0)
+    results = make_result_vec(n, π, rollouts, steps, interval, comm)
+    obstat = make_obstat(length(obsspace(first(envs))), π)
 	
     local_results, obstat = evaluate(π, nt, f, envs, n ÷ size(comm) ÷ 2, results, obstat)
 	results, obstat = share_results(local_results, obstat, comm)
     
 	if isroot(comm)
-        results = map(r -> NsEsResult(r.behaviours, novelty(r, archive, 10), r.result), results)  # calculating novelty
+        @show typeof(archive)
+        results = novelty(results, archive, 10)
 		ranked = rank(results, w)
 		optimize!(π, ranked, nt, optim, l2coeff)  # if this returns a new policy then Policy can be immutable
 	end

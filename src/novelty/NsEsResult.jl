@@ -12,11 +12,17 @@ function ScalableES.make_result(fit::Tuple{Float64,Vector{Path}}, noise_ind::Int
     NsEsResult{Float64,n_behvs,behv_size}(static_paths, -1., EsResult{Float64}(first(fit), noise_ind, steps))
 end
 
+function ScalableES.make_result_vec(n::Int, ::Policy, rollouts::Int, steps::Int, interval::Int, ::ThreadComm)
+    SharedVector{NsEsResult{Float64,rollouts,steps ÷ interval}}(n)
+end
+
+meanfit(rs::AbstractVector{T}) where T <: NsEsResult = mean(map(r->r.result.fit), rs)
+
 """
 Rank novelty results by shaping the novelty and fitness of each policy separately 
 then weighting them by `w` and `1 - w` and adding corresping weights and novelties
 """
-function ScalableES.rank(rs::AbstractVector{T}, w::Float64) where T <: NsEsResult
+function ScalableES.rank(rs::AbstractVector{T}, w) where T <: NsEsResult
     shaped_novelties = map(((p, n),) -> p - n, partition(ScalableES.rank(map(r->r.novelty, rs)), 2))
     shaped_fits = ScalableES.rank(map(r -> r.result, rs))
 
@@ -30,12 +36,15 @@ end
 
 function ScalableES.loginfo(tblogger, 
                             main_fit, 
-                            fitstats::StatsBase.SummaryStats, 
-                            novstats::StatsBase.SummaryStats, 
+                            rs::T,
                             tot_steps::Int, 
                             start_time,
                             w,
-                            tsb_fit)
+                            tsb_fit) where T <: NsEsResult
+
+    fitstats = summarystats(map(r->r.result, rs))
+    novstats = summarystats(map(r->r.novelty, rs))
+    
 	println("Main fit: $main_fit")
     println("Time since best fit: $tsb_fit")
     println("Fitness weight: $w")

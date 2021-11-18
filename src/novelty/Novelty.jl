@@ -19,7 +19,7 @@ function init_archive(policies::Vector{T}, behv_fn) where T <: AbstractPolicy
 
     # calculate novelty of each behaviour to all other behaviours excluding self
     novelties = map(b -> novelty(b, filter(cmp -> b != cmp, behaviours), 10), behaviours)
-    [ArchiveEntry(n, b) for (n, b) in zip(novelties, behaviours)]
+    Archive([ArchiveEntry(n, b) for (n, b) in zip(novelties, behaviours)])
 end
 
 
@@ -38,6 +38,10 @@ end
 """Different forms of computing the novelty of a behaviour against the archive"""
 novelty(behaviours, archive::Archive, n::Int) = novelty(behaviours, map(a->a.behaviour, archive), n)
 novelty(result::NsEsResult, archive::Archive, n::Int) = novelty(result.behaviours, map(a->a.behaviour, archive), n)
+
+function novelty(results::AbstractVector{T}, archive::Archive, n::Int) where T <: NsEsResult 
+    map(r -> NsEsResult(r.behaviours, novelty(r, archive, n), r.result), results)
+end
 
 function novelty(batch_behaviours::AbstractVector{T}, archive_behaviours::AbstractVector{U}, n::Int) where T <: AbstractPath where U <: AbstractPath
     # map(b -> novelty(b, archive_behaviours, n), batch_behaviours) / length(batch_behaviours)
