@@ -16,7 +16,7 @@ function ScalableES.make_result_vec(n::Int, ::Policy, rollouts::Int, steps::Int,
     SharedVector{NsEsResult{Float64,rollouts,steps ÷ interval}}(n)
 end
 
-meanfit(rs::AbstractVector{T}) where T <: NsEsResult = mean(map(r->r.result.fit), rs)
+meanfit(rs::AbstractVector{T}) where T <: NsEsResult = mean(map(r->r.result.fit, rs))
 
 """
 Rank novelty results by shaping the novelty and fitness of each policy separately 
@@ -36,7 +36,7 @@ end
 
 function ScalableES.loginfo(tblogger, 
                             main_fit, 
-                            rs::T,
+                            rs::Vector{T},
                             tot_steps::Int, 
                             start_time,
                             w,

@@ -28,7 +28,9 @@ function threadedrun(runname, mjpath)
 
     seed = 123  # auto generate and share this?
     # envs = LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "easier_ant.xml", Threads.nthreads(); interval=25, cropqpos=false, seed=seed)
-    envs = HrlMuJoCoEnvs.tconstruct(HrlMuJoCoEnvs.Ant, Threads.nthreads(), joinpath(HrlMuJoCoEnvs.AssetManager.dir, "easier_ant_geared.xml"))
+    # envs = HrlMuJoCoEnvs.tconstruct(HrlMuJoCoEnvs.Ant, Threads.nthreads(), joinpath(HrlMuJoCoEnvs.AssetManager.dir, "easier_ant_geared.xml"))
+    envs = HrlMuJoCoEnvs.tconstruct(HrlMuJoCoEnvs.AntMazeEnv, Threads.nthreads(); seed=seed)
+
     env = first(envs)
     actsize::Int = length(actionspace(env))
     obssize::Int = length(obsspace(env))
