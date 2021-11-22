@@ -27,9 +27,10 @@ function threadedrun(runname, mjpath)
     println("n threads $(Threads.nthreads())")
 
     seed = 123  # auto generate and share this?
+    antmodelpath=joinpath(HrlMuJoCoEnvs.AssetManager.dir, "easier_ant_geared.xml")
     # envs = LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "easier_ant.xml", Threads.nthreads(); interval=25, cropqpos=false, seed=seed)
-    # envs = HrlMuJoCoEnvs.tconstruct(HrlMuJoCoEnvs.Ant, Threads.nthreads(), joinpath(HrlMuJoCoEnvs.AssetManager.dir, "easier_ant_geared.xml"))
-    envs = HrlMuJoCoEnvs.tconstruct(HrlMuJoCoEnvs.AntMazeEnv, Threads.nthreads(); seed=seed)
+    # envs = HrlMuJoCoEnvs.tconstruct(HrlMuJoCoEnvs.Ant, Threads.nthreads(), antmodelpath)
+    envs = HrlMuJoCoEnvs.tconstruct(HrlMuJoCoEnvs.AntMazeEnv, Threads.nthreads(); seed=seed, antmodelpath=antmodelpath)
 
     env = first(envs)
     actsize::Int = length(actionspace(env))
@@ -45,7 +46,7 @@ function threadedrun(runname, mjpath)
 
     println("nn created")
     t = now()
-    run_nses(runname, nns, envs, ScalableES.ThreadComm(); gens=1000, episodes=5, steps=500, npolicies=256)
+    run_nses(runname, nns, envs, ScalableES.ThreadComm(); gens=1000, episodes=5, steps=500, npolicies=256, behv_freq=-1, min_w=0.5)
     println("Total time: $(now() - t)")
 
 end

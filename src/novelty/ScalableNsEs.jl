@@ -6,7 +6,7 @@ include("Novelty.jl")
 using DataStructures
 
 function run_nses(name::String, nns, envs, comm::Union{Comm, ThreadComm}; 
-    gens=150, npolicies=256, steps=500, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0)
+    gens=150, npolicies=256, steps=500, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0, behv_freq=20, min_w=0.8)
     @assert npolicies / size(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(size(comm)))"
 
     println("Running ScalableEs with novelty!")
@@ -28,11 +28,11 @@ function run_nses(name::String, nns, envs, comm::Union{Comm, ThreadComm};
     opt = isroot(comm) ? Adam(length(first(ps).θ), η) : nothing
 
     println("Initialization done")
-    f = (nn, e, obmean, obstd) -> nsr_eval_net(nn, e, obmean, obstd, steps, episodes)
-    behvfn = (nn, e, obmean, obstd) -> last(first(nsr_eval_net(nn, e, obmean, obstd, steps, episodes)))
-    evalfn = (nn, e, obmean, obstd) -> first(first(nsr_eval_net(nn, e, obmean, obstd, steps, episodes; show_end_pos=true)))
-    w_schedule = (w, fit, best_fit, tsb_fit) -> weight_schedule(w, fit, best_fit, tsb_fit; min_w=0.8)
-    run_gens(gens, name, ps, nt, f, behvfn, evalfn, envs, npolicies, opt, obstat, tblg, steps, episodes, w_schedule, comm)
+    f = (nn, e, obmean, obstd) -> nsr_eval_net(nn, e, obmean, obstd, steps, episodes; record_behv_freq=behv_freq)
+    behvfn = (nn, e, obmean, obstd) -> last(first(nsr_eval_net(nn, e, obmean, obstd, steps, episodes; record_behv_freq=behv_freq)))
+    evalfn = (nn, e, obmean, obstd) -> first(first(nsr_eval_net(nn, e, obmean, obstd, steps, episodes; record_behv_freq=behv_freq, show_end_pos=true)))
+    w_schedule = (w, fit, best_fit, tsb_fit) -> weight_schedule(w, fit, best_fit, tsb_fit; min_w=min_w)
+    run_gens(gens, name, ps, nt, f, behvfn, evalfn, envs, npolicies, opt, obstat, tblg, steps, episodes, w_schedule, behv_freq, comm)
 
     for (i, p) in enumerate(ps)
         @save joinpath("saved", name, "policy-obstat-opt-final-$i.bson") p obstat opt
@@ -65,6 +65,7 @@ function run_gens(n::Int,
                 steps::Int,
                 episodes::Int,
                 w_schedule,
+                record_behv_freq,
                 comm::Union{Comm,ThreadComm}) where T <: AbstractPolicy
     tot_steps = 0
     eval_score = -Inf
@@ -75,7 +76,6 @@ function run_gens(n::Int,
     tsb_fit = 0  # time since best fitness
     best_fit = -Inf
     w = 1.
-    record_behv_freq = 20
 
     for i in 1:n
         t = now()
@@ -94,8 +94,8 @@ function run_gens(n::Int,
 
 
         # calculating stats once
-        meanf = meanfit(res)
-        w, best_fit, tsb_fit = w_schedule(w, meanf, best_fit, tsb_fit)
+        perf = performance(res)
+        w, best_fit, tsb_fit = w_schedule(w, perf, best_fit, tsb_fit)
 
         if isroot(comm)
             println("\nGen $i")
@@ -145,14 +145,23 @@ function nsr_eval_net(nn::Chain, env, obmean, obstd, steps::Int, episodes::Int; 
 
 			step += 1
 			push!(obs, ob)  # propogate ob recording to here, don't have to alloc mem if not using obs
-            if i % record_behv_freq == 0
+			
+            if record_behv_freq > 0 && i % record_behv_freq == 0
                 push!(path, Vec2(HrlMuJoCoEnvs._torso_xy(env)...))
             end
-			r += getreward(env)
+    
+            if record_behv_freq < 0 && i == steps - 1  # if behv_freq == -1 then only record final position
+                push!(path, Vec2(HrlMuJoCoEnvs._torso_xy(env)...))
+            end
+            
+            r += getreward(env)
 			if isdone(env) break end
 		end
-        # make all paths same length by repeating last element
-        path = vcat(path, fill(path[end], (steps ÷ record_behv_freq) - length(path)))
+
+        if record_behv_freq > 0
+            # make all paths same length by repeating last element
+            path = vcat(path, fill(path[end], (steps ÷ record_behv_freq) - length(path)))
+        end
         push!(paths, path)
 	end
 	# @show rew step

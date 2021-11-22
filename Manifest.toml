@@ -358,10 +358,10 @@ deps = ["Random"]
 uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
 
 [[GLEW_jll]]
-deps = ["Libdl", "Libglvnd_jll", "Pkg", "Xorg_libXi_jll"]
-git-tree-sha1 = "b8b52eb7fd8819cef9b5348b701058009bcad1d1"
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Libglvnd_jll", "Pkg", "Xorg_libXi_jll"]
+git-tree-sha1 = "42df656a10ca4f72f07bb915ae6dc9abe27bf706"
 uuid = "bde7f898-03f7-559e-8810-194d950ce600"
-version = "2.1.0+3"
+version = "2.1.0+4"
 
 [[GLFW]]
 deps = ["GLFW_jll"]
@@ -602,9 +602,9 @@ uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
 
 [[Libffi_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "761a393aeccd6aa92ec3515e428c26bf99575b3b"
+git-tree-sha1 = "0b4a5d71f3e5200a7dff793393e09dfc2d874290"
 uuid = "e9f186c6-92d2-5b65-8a66-fee21dc1b490"
-version = "3.2.2+0"
+version = "3.2.2+1"
 
 [[Libgcrypt_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libgpg_error_jll", "Pkg"]

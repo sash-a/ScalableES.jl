@@ -13,10 +13,11 @@ function ScalableES.make_result(fit::Tuple{Float64,Vector{Path}}, noise_ind::Int
 end
 
 function ScalableES.make_result_vec(n::Int, ::Policy, rollouts::Int, steps::Int, interval::Int, ::ThreadComm)
-    SharedVector{NsEsResult{Float64,rollouts,steps ÷ interval}}(n)
+    npoints = interval > 0 ? steps ÷ interval : 1
+    SharedVector{NsEsResult{Float64,rollouts,npoints}}(n)
 end
 
-meanfit(rs::AbstractVector{T}) where T <: NsEsResult = mean(map(r->r.result.fit, rs))
+performance(rs::AbstractVector{T}) where T <: NsEsResult = mean(map(r->r.result.fit, rs))
 
 """
 Rank novelty results by shaping the novelty and fitness of each policy separately 
