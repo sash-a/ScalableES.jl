@@ -7,7 +7,7 @@ using DataStructures
 
 function run_nses(name::String, nns, envs, comm::Union{Comm, ThreadComm}; 
     gens=150, npolicies=256, steps=500, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0, behv_freq=20, min_w=0.8)
-    @assert npolicies / size(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(size(comm)))"
+    @assert npolicies / nnodes(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(nnodes(comm)))"
 
     println("Running ScalableEs with novelty!")
     tblg = TBLogger("tensorboard_logs/$(name)", min_level=Logging.Info)
@@ -113,7 +113,7 @@ function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, archive, rollou
     results = make_result_vec(n, π, rollouts, steps, interval, comm)
     obstat = make_obstat(length(obsspace(first(envs))), π)
 	
-    local_results, obstat = evaluate(π, nt, f, envs, n ÷ size(comm) ÷ 2, results, obstat)
+    local_results, obstat = evaluate(π, nt, f, envs, n ÷ nnodes(comm) ÷ 2, results, obstat)
 	results, obstat = share_results(local_results, obstat, comm)
     
 	if isroot(comm)

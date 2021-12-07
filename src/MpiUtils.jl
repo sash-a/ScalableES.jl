@@ -3,13 +3,16 @@ export MPIROOT, isroot, mpi_shared_array, gather, bcast, allreduce
 const MPIROOT = 0
 
 struct ThreadComm end  # used for when thread only mode
+const AbstractComm = Union{Comm, ThreadComm}
 
-isroot(comm::Comm)::Bool = MPI.Comm_rank(comm) == MPIROOT
-isroot(::ThreadComm)::Bool = true  
-Base.size(comm::Comm) = MPI.Comm_size(comm)
-Base.size(::ThreadComm) = 1
+mpirank(comm::Comm) = MPI.Comm_rank(comm)
+mpirank(::ThreadComm) = Threads.threadid() - 1
+isroot(comm::AbstractComm)::Bool = mpirank(comm) == MPIROOT
+"""Assumes that a node comm has been passes"""
+nnodes(comm::Comm) = MPI.Comm_size(comm)
+nnodes(::ThreadComm) = 1
 gather(items, comm::Comm; root=MPIROOT) = MPI.Gather(items, root, comm)
-# scatter(item, comm::Comm; root=MPIROOT) = MPI.Scatter(fill(item, size(comm)), typeof(item), root, comm)
+# scatter(item, comm::Comm; root=MPIROOT) = MPI.Scatter(fill(item, nnodes(comm)), typeof(item), root, comm)
 bcast(item, comm::Comm; root=MPIROOT) = MPI.bcast(item, root, comm)
 allreduce(item, op, comm::Comm) = MPI.Allreduce(item, op, comm)
 

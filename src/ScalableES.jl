@@ -32,7 +32,7 @@ export run_es, run_nses
 
 function run_es(name::String, nn, envs, comm::Union{Comm, ThreadComm}; 
 				gens=150, npolicies=256, steps=500, episodes=3, σ=0.02f0, nt_size=250000000, η=0.01f0)
-	@assert npolicies / size(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(size(comm)))"
+	@assert npolicies / nnodes(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(nnodes(comm)))"
 
 	println("Running ScalableEs")
 	if isroot(comm)
@@ -125,16 +125,27 @@ function eval_net(nn::Chain, env, obmean, obstd, steps::Int, episodes::Int)
 	r / episodes, step, obs
 end
 
-function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::Union{Comm, ThreadComm}; l2coeff=0.005f0)  # TODO rename this because it mutates π
-	local_results, obstat = evaluate(π, nt, f, envs, n ÷ size(comm), comm)
+function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::AbstractComm; l2coeff=0.005f0)  # TODO rename this because it mutates π
+	st = now()
+	local_results, obstat = evaluate(π, nt, f, envs, n ÷ nnodes(comm), comm)
+	println("[$(mpirank(comm))] Eval time: $(now() - st)")
+	t = now()
 	results, obstat = share_results(local_results, obstat, comm)
+	println("[$(mpirank(comm))] Res share time: $(now() - t)")
+
 
 	if isroot(comm)
+		println("[$(mpirank(comm))] Eval + share time: $(now() - st)")
+		t = now()
 		ranked = rank(results)
 		optimize!(π, ranked, nt, optim, l2coeff)  # if this returns a new policy then Policy can be immutable
+		println("[$(mpirank(comm))] Opt time: $(now() - t)")
 	end
 
+	t = now()
 	bcast_policy!(π, comm)
+	println("[$(mpirank(comm))] Pol share time: $(now() - t)")
+	println("[$(mpirank(comm))] Total time: $(now() - st)")
 
 	results, obstat
 end
@@ -170,7 +181,7 @@ function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, results, obstat)
 	results, obstat
 end
 
-function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, comm::Union{Comm, ThreadComm})
+function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, comm::AbstractComm)
 	# TODO store fits as Float32
 	results = make_result_vec(n, pol, comm)  # [positive EsResult 1, negative EsResult 1, ...]
 	obstat = make_obstat(length(obsspace(first(envs))), pol)
@@ -214,11 +225,8 @@ function share_results(local_results::AbstractVector{T}, local_obstat::S, ::Thre
 	local_results, local_obstat  # no need to do any sharing if not using mpi
 end
 
-function bcast_policy!(::AbstractPolicy, ::ThreadComm) end # no need to do any sharing if not using mpi
-function bcast_policy!(π::Policy, comm::Comm)
-	MPI.Barrier(comm)
-	π.θ = bcast(π.θ, comm)
-end
+function bcast_policy!(::AbstractPolicy, ::ThreadComm) end  # no need to do any sharing if not using mpi
+bcast_policy!(π::Policy, comm::Comm) = π.θ = bcast(π.θ, comm)
 
 # nn methods
 function forward(nn, x, obmean, obstd; rng=Random.GLOBAL_RNG)
