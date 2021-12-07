@@ -35,7 +35,9 @@ function run_es(name::String, nn, envs, comm::Union{Comm, ThreadComm};
 	@assert npolicies / size(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(size(comm)))"
 
 	println("Running ScalableEs")
-	tblg = TBLogger("tensorboard_logs/$(name)", min_level=Logging.Info)
+	if isroot(comm)
+		tblg = TBLogger("tensorboard_logs/$(name)", min_level=Logging.Info)
+	end
 
 	env = first(envs)
 	obssize = length(obsspace(env))
@@ -71,7 +73,7 @@ function run_gens(n::Int,
 				  eval_fn, 
 				  envs, 
 				  npolicies::Int, 
-				  opt::AbstractOptim, 
+				  opt::Union{AbstractOptim, Nothing}, 
 				  obstat::AbstractObstat, 
 				  logger,
 				  comm::Union{Comm, ThreadComm})
@@ -124,7 +126,7 @@ function eval_net(nn::Chain, env, obmean, obstd, steps::Int, episodes::Int)
 end
 
 function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, comm::Union{Comm, ThreadComm}; l2coeff=0.005f0)  # TODO rename this because it mutates π
-	local_results, obstat = evaluate(π, nt, f, envs, n ÷ size(comm) ÷ 2, comm)
+	local_results, obstat = evaluate(π, nt, f, envs, n ÷ size(comm), comm)
 	results, obstat = share_results(local_results, obstat, comm)
 
 	if isroot(comm)
@@ -170,10 +172,10 @@ end
 
 function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, comm::Union{Comm, ThreadComm})
 	# TODO store fits as Float32
-	results = make_result_vec(n * 2, pol, comm)  # [positive EsResult 1, negative EsResult 1, ...]
+	results = make_result_vec(n, pol, comm)  # [positive EsResult 1, negative EsResult 1, ...]
 	obstat = make_obstat(length(obsspace(first(envs))), pol)
 
-	evaluate(pol, nt, f, envs, n, results, obstat)
+	evaluate(pol, nt, f, envs, n ÷ 2, results, obstat)  #  ÷ 2 because sampling pos and neg
 end
 
 # Policy methods

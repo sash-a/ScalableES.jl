@@ -12,18 +12,19 @@ function NoiseTable(table_size::Int, noise_len::Int, σ::Float32, ::ThreadComm)
     NoiseTable{Float32}(noise, noise_len, σ), nothing
 end
 
+# could make this a julia shared array and share the values across each node?
 function NoiseTable(table_size::Int, noise_len::Int, σ::Float32, comm::MPI.Comm)
     win, shared_arr = mpi_shared_array(comm, Float32, (table_size,))
     if isroot(comm)
         shared_arr[:] = rand(Normal{Float32}(0f0, σ), table_size)
     end
-    
+
+    MPI.Barrier(comm) # finish writing before reading
     NoiseTable(shared_arr, noise_len, σ), win  # so that win can be freed
 end
 
 Base.rand(nt::NoiseTable) = rand(nt, nt.noise_len)
 Base.rand(nt::NoiseTable, len::Int) = rand(1:length(nt.noise) - len)
-
 
 StatsBase.sample(nt::NoiseTable, pos::Int, len::Int) = nt.noise[pos:pos + len - 1]
 StatsBase.sample(nt::NoiseTable, pos::Int) = StatsBase.sample(nt, pos, nt.noise_len)
