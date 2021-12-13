@@ -5,14 +5,21 @@ const MPIROOT = 0
 struct ThreadComm end  # used for when thread only mode
 const AbstractComm = Union{Comm, ThreadComm}
 
-mpirank(comm::Comm) = MPI.Comm_rank(comm)
-mpirank(::ThreadComm) = Threads.threadid() - 1
-isroot(comm::AbstractComm)::Bool = mpirank(comm) == MPIROOT
-"""Assumes that a node comm has been passes"""
+"""Assumes that a node comm has been passed"""
 nnodes(comm::Comm) = MPI.Comm_size(comm)
 nnodes(::ThreadComm) = 1
-gather(items, comm::Comm; root=MPIROOT) = MPI.Gather(items, root, comm)
+
+nprocs(comm::AbstractComm) = nnodes(comm) * Threads.nthreads()
+
+noderank(comm::Comm) = MPI.Comm_rank(comm)
+noderank(::ThreadComm) = 0
+
+procrank(comm::AbstractComm) = (noderank(comm) * Threads.nthreads()) + (Threads.threadid() - 1)
+
+isroot(comm::AbstractComm)::Bool = procrank(comm) == MPIROOT
+
 # scatter(item, comm::Comm; root=MPIROOT) = MPI.Scatter(fill(item, nnodes(comm)), typeof(item), root, comm)
+gather(items, comm::Comm; root=MPIROOT) = MPI.Gather(items, root, comm)
 bcast(item, comm::Comm; root=MPIROOT) = MPI.bcast(item, root, comm)
 allreduce(item, op, comm::Comm) = MPI.Allreduce(item, op, comm)
 
