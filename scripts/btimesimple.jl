@@ -1,11 +1,9 @@
+using MPI
+
 using Flux
 using Random
-using Base.Threads
 using BenchmarkTools
 using Future
-
-using SharedArrays
-
 using LinearAlgebra
 
 using MuJoCo
@@ -19,8 +17,8 @@ function stepmj(env, nn)
 end
 
 function testmj(repeats, nns, envs, rngs)
-    for i in 1:repeats
-        tid = threadid()
+    Threads.@threads for i in 1:repeats
+        tid = Threads.threadid()
         rng = rngs[tid]
         env = envs[tid]
         nn = nns[tid]
@@ -43,7 +41,13 @@ function parallel_rngs(rng::MersenneTwister, n::Integer)
 end
 
 function main()
+    MPI.Init()
+    comm = MPI.COMM_WORLD
+    nnodes = MPI.Comm_size(comm)
+
     LinearAlgebra.BLAS.set_num_threads(1)
+
+    mj_activate("/home/sasha/.mujoco/mjkey.txt")
 
     mt = MersenneTwister()
     rngs = parallel_rngs(mt, Threads.nthreads())
@@ -56,8 +60,9 @@ function main()
     
     stepmj(first(envs), first(nns))  # warm up
 
-    repeats = 256
-    @btime testmj($repeats, $nns, $envs, $rngs)
+    repeats = 720 ÷ nnodes
+    @show repeats nnodes
+    @btime testmj($repeats, $nns, $envs, $rngs) seconds = 10
 end
 
 main()

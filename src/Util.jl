@@ -59,16 +59,16 @@ function checkpoint(i::Int, name::String, p, obstat, opt, eval_fn, env, prev_eva
 end
 
 function parallel_rngs(seed, n::Integer, comm)
+	step = big(10)^20
     mt = MersenneTwister(seed)
     if noderank(comm) != 0  # first space out the mt on each node
         Future.randjump(mt, noderank(comm) * step)
     end
-    parallel_rngs(mt, n) # then space them out on each thread
+    parallel_rngs(mt, n, step) # then space them out on each thread
 end
 
 # https://discourse.julialang.org/t/random-number-and-parallel-execution/57024
-function parallel_rngs(rng::MersenneTwister, n::Integer)
-    step = big(10)^20
+function parallel_rngs(rng::MersenneTwister, n::Integer, step)
     rngs = Vector{MersenneTwister}(undef, n)
     rngs[1] = copy(rng)
     for i = 2:n

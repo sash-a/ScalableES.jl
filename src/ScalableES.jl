@@ -37,9 +37,7 @@ function run_es(name::String, nn, envs, comm::AbstractComm;
 	@assert npolicies / nnodes(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(nnodes(comm)))"
 
 	println("Running ScalableEs")
-	if isroot(comm)
-		tblg = TBLogger("tensorboard_logs/$(name)", min_level=Logging.Info)
-	end
+	tblg = isroot(comm) ? TBLogger("tensorboard_logs/$(name)", min_level=Logging.Info) : nothing	
 
 	env = first(envs)
 	obssize = length(obsspace(env))
@@ -49,7 +47,7 @@ function run_es(name::String, nn, envs, comm::AbstractComm;
 	bcast_policy!(p, comm)
 
 	println("Creating rngs")
-	rngs = parallel_rngs(123, nprocs(comm), comm)
+	rngs = parallel_rngs(123, nprocs(comm), comm)  # todo pass seed in
 
 	println("Creating noise table")
 	nt, win = NoiseTable(nt_size, length(p.θ), σ, comm)
@@ -220,9 +218,9 @@ end
 
 # Policy methods
 noiseify(pol::AbstractPolicy, nt::NoiseTable, rng) = noiseify(pol, nt, rand(rng, nt))
-function noiseify(pol::Policy, nt::NoiseTable, ind::Int)
-	noise = sample(nt, ind)
-	Policy(pol.θ .+ noise, pol._re), Policy(pol.θ .- noise, pol._re), ind
+@views function noiseify(π::Policy, nt::NoiseTable, ind::Int)
+	noise = ScalableES.sample(nt, ind, length(π.θ))
+	Policy(π.θ .+ noise, π._re), Policy(π.θ .- noise, π._re), ind
 end
 
 function approxgrad(π::AbstractPolicy, nt::NoiseTable, rankedresults::Vector{EsResult{T}}) where T <: AbstractFloat

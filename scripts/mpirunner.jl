@@ -12,17 +12,19 @@ using HrlMuJoCoEnvs
 using MPI
 using Base.Threads
 
+using LinearAlgebra
 using Flux
 using Dates
 using Random
 using ArgParse
 
 function mpirun(runname, mjpath)
-    MPI.Init()
-    println("MPI initialized")
-    comm::MPI.Comm = MPI.COMM_WORLD
-
     println("Run name: $(runname)")
+
+    MPI.Init()
+    comm::MPI.Comm = MPI.COMM_WORLD
+    println("MPI initialized")
+
     if ScalableES.isroot(comm)
         savedfolder = joinpath(@__DIR__, "..", "saved", runname)
         if !isdir(savedfolder)
@@ -30,10 +32,14 @@ function mpirun(runname, mjpath)
         end
     end
 
+    LinearAlgebra.BLAS.set_num_threads(1)
+
     mj_activate(mjpath)
     println("MuJoCo activated")
 
     println("n threads $(Threads.nthreads())")
+
+    @show ScalableES.nprocs(comm) gethostname()
 
     seed = 123  # auto generate and share this?
     # envs = LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "easier_ant.xml", Threads.nthreads(); interval=25, cropqpos=false, seed=seed)
@@ -51,7 +57,7 @@ function mpirun(runname, mjpath)
                 x -> x .* 30)
     
     println("nn created")
-    run_es(runname, nn, envs, ScalableES.ThreadComm(); gens=30, episodes=5, steps=1000, npolicies=240)
+    run_es(runname, nn, envs, comm; gens=30, episodes=5, steps=1000, npolicies=240)
 
     MPI.Finalize()
     println("Finalized!")
