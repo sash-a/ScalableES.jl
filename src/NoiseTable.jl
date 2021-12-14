@@ -4,19 +4,16 @@ struct NoiseTable{T<:AbstractFloat}
     σ::T
 end
 
-# NoiseTable(table_size::Int, noise_len::Int, σ::Real) = NoiseTable(randn(Float32, table_size) * σ, noise_len, σ)
 NoiseTable(table_size::Int, noise_len::Int, σ::Float32) = NoiseTable{Float32}(rand(Normal{Float32}(0f0, σ), table_size), noise_len, σ)
 
 # TODO generate and share seed
 function NoiseTable(table_size::Int, noise_len::Int, σ::Float32, ::AbstractComm; seed=123)
     rng = MersenneTwister(seed)
     noise = rand(rng, Normal{Float32}(0f0, σ), table_size)
-    # shared_noise = SharedVector{Float32}(table_size)
-    # shared_noise[:] = noise
     NoiseTable{Float32}(noise, noise_len, σ), nothing
 end
 
-# could make this a julia shared array and share the values across each node?
+# Shared array using mpi shared win
 # function NoiseTable(table_size::Int, noise_len::Int, σ::Float32, comm::MPI.Comm)
 #     win, shared_arr = mpi_shared_array(comm, Float32, (table_size,))
 #     if isroot(comm)

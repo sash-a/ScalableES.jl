@@ -43,7 +43,7 @@ function run_es(name::String, nn, envs, comm::AbstractComm;
 	obssize = length(obsspace(env))
 
 	println("Creating policy")
-	p = ScalableES.Policy(nn, comm)
+	p = ScalableES.Policy(nn)
 	bcast_policy!(p, comm)
 
 	println("Creating rngs")
@@ -86,34 +86,35 @@ function run_gens(n::Int,
 				  logger,
 				  rngs,
 				  comm::Union{Comm, ThreadComm})
-	# tot_steps = 0
-	# eval_score = -Inf
-	# env = first(envs)
+	tot_steps = 0
+	eval_score = -Inf
+	env = first(envs)
 
 	for i in 1:n
 		t = time_ns()
 		# I dislike this and would rather f is simply passed to this function, 
 		#  but that doesn't allow for obmean and obstd to be updated in the 
 		#  partial function f
-		@time f = (nn, e, rng) -> fn(nn, e, rng, mean(obstat), std(obstat))
-		@time res, gen_obstat = step_es(p, nt, f, envs, npolicies, opt, rngs, comm)
-		@time obstat += gen_obstat
-		# gt = (time_ns() - t) / 1e9
+		f = (nn, e, rng) -> fn(nn, e, rng, mean(obstat), std(obstat))
+		res, gen_obstat = step_es(p, nt, f, envs, npolicies, opt, rngs, comm)
+		obstat += gen_obstat
+
+		gt = (time_ns() - t) / 1e9
 
 		if isroot(comm)
 			println("\n\nGen $i")
 
-			# gen_eval = checkpoint(i, name, p, obstat, opt, eval_fn, env, eval_score, first(rngs))
-			# eval_score = max(eval_score, gen_eval)
+			gen_eval = checkpoint(i, name, p, obstat, opt, eval_fn, env, eval_score, first(rngs))
+			eval_score = max(eval_score, gen_eval)
 			
-			# tot_steps += sumsteps(res)
-			# loginfo(logger, gen_eval, res, tot_steps, gt)
+			tot_steps += sumsteps(res)
+			loginfo(logger, gen_eval, res, tot_steps, gt)
 		end
 	end
 end
 
 function eval_net(nn::Chain, env, obmean, obstd, steps::Int, episodes::Int, rng)
-	obs = Vector{Vector{Float64}}()
+	obs = Vector{Vector{Float64}}(undef, steps*episodes)
 	r = 0.
 	step = 0
 
@@ -126,40 +127,25 @@ function eval_net(nn::Chain, env, obmean, obstd, steps::Int, episodes::Int, rng)
 			step!(env)
 
 			step += 1
-			# push!(obs, ob)  # propogate ob recording to here, don't have to alloc mem if not using obs
+			obs[step] = ob
 			r += getreward(env)
-			# if isdone(env) break end
+			if isdone(env) break end
 		end
 	end
-	# @show rew step
-	r / episodes, step, obs
+
+	r / episodes, step, obs[1:step]
 end
 
 function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, rngs, comm::AbstractComm; l2coeff=0.005f0)  # TODO rename this because it mutates π
-	st = now()
-	# println("[$(procrank(comm))] Evaluating $(n ÷ nnodes(comm)) policies")
-	eval_alloc = @allocated local_results, obstat = evaluate(π, nt, f, envs, n ÷ nnodes(comm), rngs, comm)
-	# println("[$(procrank(comm))] Eval time: $(now() - st)")
-	t = now()
+	local_results, obstat = evaluate(π, nt, f, envs, n ÷ nnodes(comm), rngs, comm)
 	results, obstat = share_results(local_results, obstat, comm)
 
-	# println("[$(procrank(comm))] Res share time: $(now() - t)")
-
-
 	if isroot(comm)
-		# println("[$(procrank(comm))] Eval + share time: $(now() - st)")
-		t = now()
 		ranked = rank(results)
 		optimize!(π, ranked, nt, optim, l2coeff)  # if this returns a new policy then Policy can be immutable
-		# println("[$(procrank(comm))] Opt time: $(now() - t)")
 	end
 
-	t = now()
 	bcast_policy!(π, comm)
-
-	# println("[$(procrank(comm))] Pol share time: $(now() - t)")
-	# println("[$(procrank(comm))] Total time: $(now() - st)")
-
 	results, obstat
 end
 
@@ -174,35 +160,23 @@ function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, results, obstat, rng
 		env = envs[Threads.threadid()]
 		rng = rngs[Threads.threadid()]
 
-		t = now()
 		pπ, nπ, noise_ind = noiseify(pol, nt, rng)
-		# println("[$(procrank(comm))] noiseify time: $(now() - t)")
 
-		t = now()
 		pnn = to_nn(pπ)
 		nnn = to_nn(nπ)
 
-		# println("[$(procrank(comm))] to_nn time: $(now() - t)")
-
-		t = now()
 		pfit, psteps, pobs = f(pnn, env, rng)
 		nfit, nsteps, nobs = f(nnn, env, rng)
-		# println("[$(procrank(comm))] env runtime: $(now() - t)")
 
-		# if rand(rng) < 0.001
-		# 	t = now()
-		# 	Base.@lock l begin
-		# 		# obstat = add_obs(obstat, vcat(pobs, nobs))
-		# 		obstat = add_obs(obstat, pobs)
-		# 		obstat = add_obs(obstat, nobs)
-		# 	end
-		# 	# println("[$(procrank(comm))] add obstat time: $(now() - t)")
-		# end
+		if rand(rng) < 0.001
+			Base.@lock l begin
+				obstat = add_obs(obstat, pobs)
+				obstat = add_obs(obstat, nobs)
+			end
+		end
 
-		t = now()
 		@inbounds results[i * 2 - 1] = make_result(pfit, noise_ind, psteps)
 		@inbounds results[i * 2] = make_result(nfit, noise_ind, nsteps)
-		# println("[$(procrank(comm))] make res time: $(now() - t)")
 	end
 
 	results, obstat
@@ -235,13 +209,11 @@ function optimize!(π::Policy, ranked::Vector{EsResult{T}}, nt::NoiseTable, opti
 	π.θ .+= optimize(optim, grad)
 end
 
-# make_result_vec(n::Int, ::Policy, ::Comm) = Vector{EsResult{Float64}}(undef, n)
-make_result_vec(n::Int, ::Policy, ::AbstractComm) = Vector{EsResult{Float64}}(undef, n)#SharedVector{EsResult{Float64}}(n)
+make_result_vec(n::Int, ::Policy, ::AbstractComm) = Vector{EsResult{Float64}}(undef, n)
 make_obstat(shape, ::Policy) = Obstat(shape, 0f0)
 
 # MPI stuff
 function share_results(local_results::AbstractVector{T}, local_obstat::S, comm::Comm) where S <: AbstractObstat where T <: AbstractResult
-	# local_obstat = Obstat{length(sum), Float32}(SVector{length(sum), Float32}(sum), SVector{length(sum), Float32}(ssq), cnt)
 	results = gather(local_results, comm)
 	obstat = allreduce(local_obstat, +, comm)
 

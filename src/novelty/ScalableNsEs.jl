@@ -16,7 +16,7 @@ function run_nses(name::String, nns, envs, comm::Union{Comm, ThreadComm};
     obssize = length(obsspace(env))
 
     println("Creating policy")
-    ps = [Policy(nn, comm) for nn in nns]
+    ps = [Policy(nn) for nn in nns]
     for p in ps
         bcast_policy!(p, comm)  # untested for mpi
     end

@@ -31,8 +31,8 @@ function threadedrun(runname, mjpath)
 
     seed = 123  # auto generate and share this?
     # envs = LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "easier_ant.xml", Threads.nthreads(); interval=25, cropqpos=false, seed=seed)
-    envs = LyceumMuJoCo.tconstruct(HrlMuJoCoEnvs.AntMazeEnv, Threads.nthreads())
-    # envs = HrlMuJoCoEnvs.tconstruct(LyceumMuJoCo.HopperV2, Threads.nthreads())
+    # envs = LyceumMuJoCo.tconstruct(HrlMuJoCoEnvs.AntMazeEnv, Threads.nthreads())
+    envs = HrlMuJoCoEnvs.tconstruct(LyceumMuJoCo.HopperV2, Threads.nthreads())
 
 
     env = first(envs)
@@ -45,7 +45,7 @@ function threadedrun(runname, mjpath)
                 Dense(256, actsize, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),)
                 # x -> x .* 30)
     println("nn created")
-    run_es(runname, nn, envs, ScalableES.ThreadComm(); gens=30, episodes=5, steps=1000, npolicies=256)
+    run_es(runname, nn, envs, ScalableES.ThreadComm(); gens=300, episodes=5, steps=1000, npolicies=256)
 end
 
 function main()
