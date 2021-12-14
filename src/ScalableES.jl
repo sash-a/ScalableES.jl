@@ -161,8 +161,6 @@ end
 function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, results, obstat, rngs, comm)
     l = ReentrantLock()
 
-    ppg = Threads.Atomic{Int}(0)
-
     @qthreads for i = 1:n
         env = envs[Threads.threadid()]
         rng = rngs[Threads.threadid()]
@@ -185,10 +183,7 @@ function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, results, obstat, rng
         @inbounds results[i*2-1] = make_result(pfit, noise_ind, psteps)
         @inbounds results[i*2] = make_result(nfit, noise_ind, nsteps)
 
-        ppg[] += 2
     end
-
-    @show ppg
 
     results, obstat
 end
