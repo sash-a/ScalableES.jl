@@ -50,6 +50,7 @@ Runs evolution strategy
 - `σ::Float32`: the standard deviation of the noise applied to the policy params
 - `nt_size::Int`: number of elements in the noise table
 - `η::Float32`: learning rate
+- `seed`: seed for the noise table and rngs
 """
 function run_es(
     name::String,
@@ -63,6 +64,7 @@ function run_es(
     σ::Float32 = 0.02f0,
     nt_size::Int = 250000000,
     η::Float32 = 0.01f0,
+    seed = 123
 )
     @assert npolicies / nnodes(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(nnodes(comm)))"
 
@@ -77,10 +79,10 @@ function run_es(
     bcast_policy!(p, comm)
 
     println("Creating rngs")
-    rngs = parallel_rngs(123, nprocs(comm), comm)  # todo pass seed in
-
+    rngs = parallel_rngs(seed, nprocs(comm), comm)
+    
     println("Creating noise table")
-    nt, win = NoiseTable(nt_size, length(p.θ), σ, comm)
+    nt, win = NoiseTable(nt_size, length(p.θ), σ, comm; seed=seed)
 
     obstat = Obstat(obssize, 1.0f-2)
     opt = isroot(comm) ? Adam(length(p.θ), η) : nothing

@@ -20,14 +20,14 @@ using Dates
 using Random
 using ArgParse
 
-function mpirun(runname, mjpath, mpi)
+function run(runname, mjpath, mpi)
     println("Run name: $(runname)")
     @show mpi
 
     comm = if mpi
         MPI.Init()
-        comm::MPI.Comm = MPI.COMM_WORLD
-    else 
+        MPI.COMM_WORLD
+    else
         ScalableES.ThreadComm()
     end
 
@@ -44,7 +44,6 @@ function mpirun(runname, mjpath, mpi)
 
     println("n threads $(Threads.nthreads())")
 
-
     seed = 123  # auto generate and share this?
 
     # envs = LyceumBase.tconstruct(HrlMuJoCoEnvs.Flagrun, "easier_ant.xml", Threads.nthreads(); interval=25, cropqpos=false, seed=seed)
@@ -55,31 +54,33 @@ function mpirun(runname, mjpath, mpi)
     actsize::Int = length(actionspace(env))
     obssize::Int = length(obsspace(env))
 
-    nn = Chain(Dense(obssize, 256, tanh; initW=Flux.glorot_normal, initb=Flux.glorot_normal),
-                Dense(256, 256, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
-                Dense(256, 256, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
-                Dense(256, actsize, tanh;initW=Flux.glorot_normal, initb=Flux.glorot_normal),
-                x -> x .* 30)
-    
+    nn = Chain(
+        Dense(obssize, 256, tanh; initW = Flux.glorot_normal, initb = Flux.glorot_normal),
+        Dense(256, 256, tanh; initW = Flux.glorot_normal, initb = Flux.glorot_normal),
+        Dense(256, 256, tanh; initW = Flux.glorot_normal, initb = Flux.glorot_normal),
+        Dense(256, actsize, tanh; initW = Flux.glorot_normal, initb = Flux.glorot_normal),
+        x -> x .* 30,
+    )
+
     println("nn created")
-    run_es(runname, nn, envs, comm; gens=30, episodes=5, steps=1000, npolicies=240)
+    run_es(runname, nn, envs, comm; gens = 30, episodes = 5, steps = 1000, npolicies = 240, seed = seed)
 end
 
 function main()
     s = ArgParseSettings()
     @add_arg_table s begin
         "runname"
-            required=true
-            help="Name of the run for saving policies and tensorboard logs"
+        required = true
+        help = "Name of the run for saving policies and tensorboard logs"
         "mjpath"
-            required=true
-            help="path/to/mujoco/mjkey.txt"
+        required = true
+        help = "path/to/mujoco/mjkey.txt"
         "--mpi"
-            help = "use if running on multiple nodes"
-            action = :store_true
+        help = "use if running on multiple nodes"
+        action = :store_true
     end
     args = parse_args(s)
-    mpirun(args["runname"], args["mjpath"], args["mpi"])
+    run(args["runname"], args["mjpath"], args["mpi"])
 end
 
 main()
