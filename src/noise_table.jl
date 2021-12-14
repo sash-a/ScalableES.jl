@@ -1,15 +1,16 @@
 struct NoiseTable{T<:AbstractFloat}
-	noise::AbstractVector{T}
-	noise_len::Int
+    noise::AbstractVector{T}
+    noise_len::Int
     σ::T
 end
 
-NoiseTable(table_size::Int, noise_len::Int, σ::Float32) = NoiseTable{Float32}(rand(Normal{Float32}(0f0, σ), table_size), noise_len, σ)
+NoiseTable(table_size::Int, noise_len::Int, σ::Float32) =
+    NoiseTable{Float32}(rand(Normal{Float32}(0.0f0, σ), table_size), noise_len, σ)
 
 # TODO generate and share seed
-function NoiseTable(table_size::Int, noise_len::Int, σ::Float32, ::AbstractComm; seed=123)
+function NoiseTable(table_size::Int, noise_len::Int, σ::Float32, ::AbstractComm; seed = 123)
     rng = MersenneTwister(seed)
-    noise = rand(rng, Normal{Float32}(0f0, σ), table_size)
+    noise = rand(rng, Normal{Float32}(0.0f0, σ), table_size)
     NoiseTable{Float32}(noise, noise_len, σ), nothing
 end
 
@@ -25,11 +26,17 @@ end
 # end
 
 Base.rand(rng::AbstractRNG, nt::NoiseTable) = rand(rng, nt, nt.noise_len)
-Base.rand(rng::AbstractRNG, nt::NoiseTable, len::Int) = rand(rng, 1:length(nt.noise) - len)
+Base.rand(rng::AbstractRNG, nt::NoiseTable, len::Int) = rand(rng, 1:length(nt.noise)-len)
 
-@inbounds StatsBase.sample(nt::NoiseTable, pos::Int, len::Int) = nt.noise[pos:pos + len - 1]
+@inbounds StatsBase.sample(nt::NoiseTable, pos::Int, len::Int) = nt.noise[pos:pos+len-1]
 StatsBase.sample(nt::NoiseTable, pos::Int) = StatsBase.sample(nt, pos, nt.noise_len)
 function StatsBase.sample(rng::AbstractRNG, nt::NoiseTable)
     i = rand(rng, nt)
     StatsBase.sample(nt, i), i
+end
+
+noiseify(pol::AbstractPolicy, nt::NoiseTable, rng) = noiseify(pol, nt, rand(rng, nt))
+@views function noiseify(π::Policy, nt::NoiseTable, ind::Int)
+    noise = ScalableES.sample(nt, ind, length(π.θ))
+    Policy(π.θ .+ noise, π._re), Policy(π.θ .- noise, π._re), ind
 end

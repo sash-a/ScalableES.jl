@@ -3,7 +3,7 @@ export MPIROOT, isroot, mpi_shared_array, gather, bcast, allreduce
 const MPIROOT = 0
 
 struct ThreadComm end  # used for when thread only mode
-const AbstractComm = Union{Comm, ThreadComm}
+const AbstractComm = Union{Comm,ThreadComm}
 
 """Assumes that a node comm has been passed"""
 nnodes(comm::Comm) = MPI.Comm_size(comm)
@@ -19,8 +19,8 @@ procrank(comm::AbstractComm) = (noderank(comm) * Threads.nthreads()) + (Threads.
 isroot(comm::AbstractComm)::Bool = procrank(comm) == MPIROOT
 
 # scatter(item, comm::Comm; root=MPIROOT) = MPI.Scatter(fill(item, nnodes(comm)), typeof(item), root, comm)
-gather(items, comm::Comm; root=MPIROOT) = MPI.Gather(items, root, comm)
-bcast(item, comm::Comm; root=MPIROOT) = MPI.bcast(item, root, comm)
+gather(items, comm::Comm; root = MPIROOT) = MPI.Gather(items, root, comm)
+bcast(item, comm::Comm; root = MPIROOT) = MPI.bcast(item, root, comm)
 allreduce(item, op, comm::Comm) = MPI.Allreduce(item, op, comm)
 
 """
@@ -34,7 +34,7 @@ const arr = mpi_shared_array(MPI.COMM_WORLD, Int, (nrows, nworkers_node), owner_
 
 https://github.com/JuliaParallel/MPI.jl/blob/6f7f2336576408deb67b1e9080a6a9aa4144b067/test/test_shared_win.jl
 """
-function mpi_shared_array(node_comm::MPI.Comm, ::Type{T}, sz::Tuple{Vararg{Int}}; owner_rank=0) where T
+function mpi_shared_array(node_comm::MPI.Comm, ::Type{T}, sz::Tuple{Vararg{Int}}; owner_rank = 0) where {T}
     node_rank = MPI.Comm_rank(node_comm)
     len_to_alloc = MPI.Comm_rank(node_comm) == owner_rank ? prod(sz) : 0
     win, bufptr = MPI.Win_allocate_shared(T, len_to_alloc, node_comm)
