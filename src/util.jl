@@ -27,9 +27,9 @@ end
 function parallel_rngs(seed, n::Integer, comm)
     step = big(10)^20
     mt = MersenneTwister(seed)
-    if noderank(comm) != 0  # first space out the mt on each node
-        Future.randjump(mt, noderank(comm) * step)
-    end
+    # spacing each out mt on each node out
+    # starting at 1 step passed the given seed because nt uses that seed
+    Future.randjump(mt, (1 + procrank(comm)) * step)  
     parallel_rngs(mt, n, step) # then space them out on each thread
 end
 
