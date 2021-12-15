@@ -156,7 +156,7 @@ function step_es!(π::AbstractPolicy, nt, f, envs, n::Int, optim, earlystop, rng
     results, obstat = share_results(local_results, obstat, comm)
     
     if isroot(comm)
-        filter!(r->r.ind != -1, results)  # remove dummy results that were added by slower nodes
+        filter!(validresult, results)  # remove dummy results that were added by slower nodes
         ranked = rank(results)
         optimize!(π, ranked, nt, optim, l2coeff)  # if this returns a new policy then Policy can be immutable
     end
@@ -172,8 +172,8 @@ function evaluate(π::AbstractPolicy, nt, f, envs, n::Int, results, obstat, earl
     @qthreads for i = 1:n
         @inbounds if first(earlystop)  # one of the nodes has completed all evals
             # fill evals with dummy data that will be filtered out later (easier than gatherv)
-            @inbounds results[i*2-1] = make_result(-1., -1, 0)
-            @inbounds results[i*2] = make_result(-1., -1, 0)
+            @inbounds results[i*2-1] = make_result(-1., -1, -1)
+            @inbounds results[i*2] = make_result(-1., -1, -1)
             continue 
         end
 

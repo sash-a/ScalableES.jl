@@ -5,16 +5,17 @@ struct EsResult{T} <: AbstractResult{T}
     ind::Int
     steps::Int
 end
-make_result_vec(n::Int, ::Policy, ::AbstractComm) = Vector{EsResult{Float64}}(undef, n)
 make_result(fit::Float64, noise_ind::Int, steps::Int) = EsResult{Float64}(fit, noise_ind, steps)
-sumsteps(res::AbstractVector{EsResult{T}}) where {T} = sum(map(r -> r.steps, res))
+make_result_vec(n::Int, ::Policy, ::AbstractComm) = Vector{EsResult{Float64}}(undef, n)
+validresult(r::EsResult) = r.steps > 0
+
 
 function rank(fs::AbstractVector{T}) where {T}
     len = length(fs)
     inds = sortperm(fs)
     ranked = zeros(Float32, len)
     ranked[inds] = (0:len-1)
-
+    
     ranked ./ (len - 1) .- 0.5f0
 end
 
@@ -26,6 +27,8 @@ function rank(results::AbstractVector{EsResult{T}}) where {T}
     ranked = map((r, f) -> EsResult(f, r.ind, r.steps), results, rank((r -> r.fit).(results)))
     map(((p, n),) -> EsResult(p.fit - n.fit, p.ind, p.steps + n.steps), partition(ranked, 2))
 end
+
+sumsteps(res::AbstractVector{EsResult{T}}) where {T} = sum(map(r -> r.steps, res))
 
 function StatsBase.summarystats(results::AbstractVector{EsResult{T}}) where {T}
     fits = map(r -> r.fit, results)
