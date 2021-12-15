@@ -75,33 +75,31 @@ function run_es(
     obssize = length(obsspace(env))
 
     println("Creating policy")
-    p = ScalableES.Policy(nn)
-    bcast_policy!(p, comm)
+    π = ScalableES.Policy(nn)
+    bcast_policy!(π, comm)
 
     println("Creating rngs")
     rngs = parallel_rngs(seed, nprocs(comm), comm)
     
     println("Creating noise table")
-    nt, win = NoiseTable(nt_size, length(p.θ), σ, comm; seed=seed)
+    nt, win = NoiseTable(nt_size, length(π.θ), σ, comm; seed=seed)
 
     obstat = Obstat(obssize, 1.0f-2)
-    opt = isroot(comm) ? Adam(length(p.θ), η) : nothing
+    opt = isroot(comm) ? Adam(length(π.θ), η) : nothing
 
     println("Initialization done")
     f = (nn, e, rng, obmean, obstd) -> eval_net(nn, e, obmean, obstd, steps, episodes, rng)
     evalfn = (nn, e, rng, obmean, obstd) -> first(eval_net(nn, e, obmean, obstd, steps, episodes, rng))
 
-    f(to_nn(p), first(envs), first(rngs), mean(obstat), std(obstat))
+    f(to_nn(π), first(envs), first(rngs), mean(obstat), std(obstat))
 
     t = time_ns()
-    run_gens(gens, name, p, nt, f, evalfn, envs, npolicies, opt, obstat, tblg, rngs, comm)
+    run_gens(gens, name, π, nt, f, evalfn, envs, npolicies, opt, obstat, tblg, rngs, comm)
     println("Total time: $((time_ns() - t) / 1e9) s")
 
-    @save joinpath("saved", name, "policy-obstat-opt-final.bson") p obstat opt
+    @save joinpath("saved", name, "policy-obstat-opt-final.bson") π obstat opt
 
-    if win !== nothing
-        MPI.free(win)
-    end
+    if win !== nothing MPI.free(win) end
 end
 
 function run_gens(
@@ -122,6 +120,9 @@ function run_gens(
     tot_steps = 0
     eval_score = -Inf
     env = first(envs)
+    # used for mpi mode, set to true once a single node is finished all evals
+    # once true all threads end after their current eval. Helps stop threads from being idle
+    win, earlystop = ismpi(comm) ? mpi_shared_array(comm, Bool, (1,)) : (nothing, [false])
 
     for i = 1:n
         t = time_ns()
@@ -129,7 +130,7 @@ function run_gens(
         #  but that doesn't allow for obmean and obstd to be updated in the 
         #  partial function f
         f = (nn, e, rng) -> fn(nn, e, rng, mean(obstat), std(obstat))
-        res, gen_obstat = step_es(p, nt, f, envs, npolicies, opt, rngs, comm)
+        res, gen_obstat = step_es!(p, nt, f, envs, npolicies, opt, earlystop, rngs, comm)
         obstat += gen_obstat
 
         gt = (time_ns() - t) / 1e9
@@ -143,14 +144,19 @@ function run_gens(
             tot_steps += sumsteps(res)
             loginfo(logger, gen_eval, res, tot_steps, gt)
         end
+
+        earlystop[1] = false
     end
+
+    if win !== nothing MPI.free(win) end
 end
 
-function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, rngs, comm::AbstractComm; l2coeff = 0.005f0)  # TODO rename this because it mutates π
-    local_results, obstat = evaluate(π, nt, f, envs, n ÷ nnodes(comm), rngs, comm)
+function step_es!(π::AbstractPolicy, nt, f, envs, n::Int, optim, earlystop, rngs, comm::AbstractComm; l2coeff = 0.005f0)
+    local_results, obstat = evaluate(π, nt, f, envs, n ÷ nnodes(comm), earlystop, rngs, comm)
     results, obstat = share_results(local_results, obstat, comm)
-
+    
     if isroot(comm)
+        filter!(r->r.ind != -1, results)  # remove dummy results that were added by slower nodes
         ranked = rank(results)
         optimize!(π, ranked, nt, optim, l2coeff)  # if this returns a new policy then Policy can be immutable
     end
@@ -160,14 +166,25 @@ function step_es(π::AbstractPolicy, nt, f, envs, n::Int, optim, rngs, comm::Abs
 end
 
 """Results and obstat are empty containers of the correct type"""
-function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, results, obstat, rngs, comm)
+function evaluate(π::AbstractPolicy, nt, f, envs, n::Int, results, obstat, earlystop, rngs, comm)
     l = ReentrantLock()
 
     @qthreads for i = 1:n
-        env = envs[Threads.threadid()]
-        rng = rngs[Threads.threadid()]
+        @inbounds if first(earlystop)  # one of the nodes has completed all evals
+            # fill evals with dummy data that will be filtered out later (easier than gatherv)
+            @inbounds results[i*2-1] = make_result(-1., -1, 0)
+            @inbounds results[i*2] = make_result(-1., -1, 0)
+            continue 
+        end
 
-        pπ, nπ, noise_ind = noiseify(pol, nt, rng)
+        @inbounds env = envs[Threads.threadid()]
+        @inbounds rng = rngs[Threads.threadid()]
+
+        pπ, nπ, noise_ind = noiseify(π, nt, rng)
+
+        if noise_ind == 0
+            @show noise_ind
+        end
 
         pnn = to_nn(pπ)
         nnn = to_nn(nπ)
@@ -184,18 +201,18 @@ function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, results, obstat, rng
 
         @inbounds results[i*2-1] = make_result(pfit, noise_ind, psteps)
         @inbounds results[i*2] = make_result(nfit, noise_ind, nsteps)
-
     end
+    earlystop[1] = true
 
     results, obstat
 end
 
-function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, rngs, comm::AbstractComm)
+function evaluate(π::AbstractPolicy, nt, f, envs, n::Int, earlystop, rngs, comm::AbstractComm)
     # TODO store fits as Float32
-    results = make_result_vec(n, pol, comm)  # [positive EsResult 1, negative EsResult 1, ...]
-    obstat = make_obstat(length(obsspace(first(envs))), pol)
+    results = make_result_vec(n, π, comm)  # [positive EsResult 1, negative EsResult 1, ...]
+    obstat = make_obstat(length(obsspace(first(envs))), π)
 
-    evaluate(pol, nt, f, envs, n ÷ 2, results, obstat, rngs, comm)  # ÷ 2 because sampling pos and neg
+    evaluate(π, nt, f, envs, n ÷ 2, results, obstat, earlystop, rngs, comm)  # ÷ 2 because sampling pos and neg
 end
 
 function approxgrad(π::AbstractPolicy, nt::NoiseTable, rankedresults::Vector{EsResult{T}}) where {T<:AbstractFloat}

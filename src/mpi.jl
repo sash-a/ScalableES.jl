@@ -5,6 +5,8 @@ const MPIROOT = 0
 struct ThreadComm end  # used for when thread only mode
 const AbstractComm = Union{Comm,ThreadComm}
 
+ismpi(comm::AbstractComm) = comm isa Comm
+
 """Assumes that a node comm has been passed"""
 nnodes(comm::Comm) = MPI.Comm_size(comm)
 nnodes(::ThreadComm) = 1

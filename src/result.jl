@@ -32,10 +32,11 @@ function StatsBase.summarystats(results::AbstractVector{EsResult{T}}) where {T}
     StatsBase.summarystats(fits)
 end
 
+"""Reduces obstats in an all to all manner, but sends results to only the root proc"""
 function share_results(
     local_results::AbstractVector{T},
     local_obstat::S,
-    comm::Comm,
+    comm::Comm
 ) where {S<:AbstractObstat} where {T<:AbstractResult}
     results = gather(local_results, comm)
     obstat = allreduce(local_obstat, +, comm)
