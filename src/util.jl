@@ -7,7 +7,7 @@ function loginfo(tblogger, main_fit, results::AbstractVector{T}, tot_steps::Int,
     with_logger(tblogger) do
         @info "" main_fitness = main_fit log_step_increment = 0
         @info "" summarystat = ss log_step_increment = 0
-        @info "" gen_time_s = gen_time
+        @info "" gen_time_s = gen_time log_step_increment = 0
         @info "" total_steps = tot_steps log_step_increment = 1
     end
 end
