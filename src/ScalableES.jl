@@ -64,9 +64,9 @@ function run_es(
     σ::Float32 = 0.02f0,
     nt_size::Int = 250000000,
     η::Float32 = 0.01f0,
-    seed = 123
+    seed = 123,
 )
-    @assert npolicies / nnodes(comm) % 2 == 0 "Num policies / num nodes must be even (eps:$npolicies, nprocs:$(nnodes(comm)))"
+    validateparams(npolicies, comm)
 
     println("Running ScalableEs")
     tblg = isroot(comm) ? TBLogger("tensorboard_logs/$(name)", min_level = Logging.Info) : nothing
@@ -80,9 +80,9 @@ function run_es(
 
     println("Creating rngs")
     rngs = parallel_rngs(seed, nprocs(comm), comm)
-    
+
     println("Creating noise table")
-    nt, win = NoiseTable(nt_size, length(p.θ), σ, comm; seed=seed)
+    nt, win = NoiseTable(nt_size, length(p.θ), σ, comm; seed = seed)
 
     obstat = Obstat(obssize, 1.0f-2)
     opt = isroot(comm) ? Adam(length(p.θ), η) : nothing
@@ -163,7 +163,7 @@ end
 function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, results, obstat, rngs, comm)
     l = ReentrantLock()
 
-    @qthreads for i = 1:n
+    @qthreads for i = 1:n÷2  # ÷ 2 because sampling pos and neg (antithetic sampling)
         env = envs[Threads.threadid()]
         rng = rngs[Threads.threadid()]
 
@@ -195,7 +195,7 @@ function evaluate(pol::AbstractPolicy, nt, f, envs, n::Int, rngs, comm::Abstract
     results = make_result_vec(n, pol, comm)  # [positive EsResult 1, negative EsResult 1, ...]
     obstat = make_obstat(length(obsspace(first(envs))), pol)
 
-    evaluate(pol, nt, f, envs, n ÷ 2, results, obstat, rngs, comm)  # ÷ 2 because sampling pos and neg
+    evaluate(pol, nt, f, envs, n, results, obstat, rngs, comm)
 end
 
 function approxgrad(π::AbstractPolicy, nt::NoiseTable, rankedresults::Vector{EsResult{T}}) where {T<:AbstractFloat}
@@ -203,6 +203,13 @@ function approxgrad(π::AbstractPolicy, nt::NoiseTable, rankedresults::Vector{Es
     noises = map(r -> sample(nt, r.ind, length(π.θ)), rankedresults)
 
     sum([f .* n for (f, n) in zip(fits, noises)]) .* (1 / nt.σ)  # noise already has std σ, which just messes with lr 
+end
+
+function validateparams(pols::Int, comm::AbstractComm)
+    nodes = nnodes(comm)
+    ppn = pols / nodes
+    @assert pols % nodes == 0 "Each node must get the same number of policies. There are $pols policies and $nodes nodes."
+    @assert ppn % 2 == 0 "Each node must have an even number of policies to perform antithetic sampling. Policies per node = $ppn."
 end
 
 include("novelty/ScalableNsEs.jl")

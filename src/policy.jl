@@ -19,7 +19,7 @@ function forward(nn, x, obmean, obstd, rng)
     out = nn(x)
 
     if rng !== nothing
-        r = randn(rng, Float32, size(out)) .* 0.01
+        r = randn(rng, Float32, size(out)) .* 0.01f0
         out .+ r
     else
         out
