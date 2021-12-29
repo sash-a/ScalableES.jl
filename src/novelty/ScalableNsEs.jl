@@ -174,10 +174,11 @@ function step_es(
     comm::Union{Comm,ThreadComm};
     l2coeff = 0.005f0,
 )  # TODO rename this because it mutates π
+    n = n ÷ nnodes(comm)
     results = make_result_vec(n, π, rollouts, steps, interval, comm)
     obstat = make_obstat(length(obsspace(first(envs))), π)
 
-    local_results, obstat = evaluate(π, nt, f, envs, n ÷ nnodes(comm) ÷ 2, results, obstat, rngs, comm)
+    local_results, obstat = evaluate(π, nt, f, envs, n, results, obstat, rngs, comm)
     results, obstat = share_results(local_results, obstat, comm)
 
     if isroot(comm)
