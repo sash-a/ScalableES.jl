@@ -105,7 +105,7 @@ function run_gens(
     eval_fn,
     envs,
     npolicies::Int,
-    opt::AbstractOptim,
+    opt::Union{AbstractOptim, Nothing},
     obstat::AbstractObstat,
     logger,
     steps::Int,
@@ -141,9 +141,9 @@ function run_gens(
         update_archive!(archive, p, 10, (nn) -> behv_fn(nn, env, first(rngs), mean(obstat), std(obstat)))
         novs[p_idx] = archive[end].novelty  # updates chance of selecting policy again
 
-
         # calculating stats once
-        perf = performance(res)
+        perf = isroot(comm) ? performance(res) : nothing
+        perf = bcast(perf, comm)
         w, best_fit, tsb_fit = w_schedule(w, perf, best_fit, tsb_fit)
 
         if isroot(comm)
